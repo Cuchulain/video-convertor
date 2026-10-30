@@ -1,0 +1,8 @@
+# macOS
+.DS_Store
+
+# lokální nastavení Claude Code
+.claude/settings.local.json
+
+# sestavený archiv pro Windows (viz ROADMAP – skript pro sestavení)
+video-convertor-windows.zip
