@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Video convertor pro TV – Jan Čejka, https://dev.jancejka.cz
+# https://github.com/Cuchulain/video-convertor (licence MIT)
+
 # Asociativní pole vyžadují Bash 4+; systémový Bash 3.2 na macOS nestačí.
 if (( BASH_VERSINFO[0] < 4 )); then
   for b in /opt/homebrew/bin/bash /usr/local/bin/bash; do
@@ -104,6 +107,9 @@ Ruční volba stop (pro sporné případy; čísla viz výpis "Stopy ve zdroji")
   --sub N            použít titulkovou stopu s:N
   --sub SOUBOR       použít titulky ze souboru (.ass, .srt, ...)
   --sub none         bez titulků
+
+Video convertor pro TV – Jan Čejka, https://dev.jancejka.cz
+https://github.com/Cuchulain/video-convertor (licence MIT)
 EOF
 }
 

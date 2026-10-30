@@ -1,4 +1,7 @@
-﻿Set-StrictMode -Version 2.0
+﻿# Video convertor pro TV – Jan Čejka, https://dev.jancejka.cz
+# https://github.com/Cuchulain/video-convertor (licence MIT)
+
+Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 
 # FFmpeg stažený instalátorem nebo ffmpeg-setup.cmd (složka ffmpeg v kořeni
@@ -22,14 +25,16 @@ function Assert-VideoTools {
 $script:RequiredEncoders = @('libx264', 'libx265', 'aac', 'ac3')
 $script:RequiredFilters = @('ass', 'subtitles')
 
-# Vrátí seznam nedostatků FFmpeg (prázdný = vyhovuje): chybějící ffmpeg/ffprobe,
-# enkodéry a filtry pro vypalování titulků (libass).
+# Vrátí seznam toho, co FFmpeg chybí (prázdný = vyhovuje): ffmpeg/ffprobe,
+# enkodéry a filtry pro vypalování titulků (libass). Položky jsou jazykově
+# neutrální názvy ("libx264", "ass (libass)"), aby šly vložit do české
+# i anglické hlášky.
 function Get-FfmpegProblems([string] $Ffmpeg = 'ffmpeg', [string] $Ffprobe = 'ffprobe',
                             [string[]] $Encoders = $script:RequiredEncoders,
                             [string[]] $Filters = $script:RequiredFilters) {
     $problems = @()
-    if (-not (Get-Command $Ffmpeg -ErrorAction SilentlyContinue)) { return @('chybí ffmpeg') }
-    if (-not (Get-Command $Ffprobe -ErrorAction SilentlyContinue)) { $problems += 'chybí ffprobe' }
+    if (-not (Get-Command $Ffmpeg -ErrorAction SilentlyContinue)) { return @('ffmpeg') }
+    if (-not (Get-Command $Ffprobe -ErrorAction SilentlyContinue)) { $problems += 'ffprobe' }
 
     $oldPreference = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
@@ -40,10 +45,10 @@ function Get-FfmpegProblems([string] $Ffmpeg = 'ffmpeg', [string] $Ffprobe = 'ff
         $ErrorActionPreference = $oldPreference
     }
     foreach ($encoder in $Encoders) {
-        if ($encoderList -notmatch "(?m)^\s*\S+\s+$([regex]::Escape($encoder))\s") { $problems += "enkodér $encoder" }
+        if ($encoderList -notmatch "(?m)^\s*\S+\s+$([regex]::Escape($encoder))\s") { $problems += $encoder }
     }
     foreach ($filter in $Filters) {
-        if ($filterList -notmatch "(?m)^\s*\S+\s+$([regex]::Escape($filter))\s") { $problems += "filtr $filter (libass)" }
+        if ($filterList -notmatch "(?m)^\s*\S+\s+$([regex]::Escape($filter))\s") { $problems += "$filter (libass)" }
     }
     return $problems
 }

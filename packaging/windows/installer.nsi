@@ -1,4 +1,7 @@
-﻿; Instalátor Video convertor pro TV (NSIS 3). Sestavuje build/build-windows.sh:
+﻿; Video convertor pro TV – Jan Čejka, https://dev.jancejka.cz
+; https://github.com/Cuchulain/video-convertor (licence MIT)
+;
+; Instalátor Video convertor pro TV (NSIS 3). Sestavuje build/build-windows.sh:
 ;   makensis -DVERSION=X.Y.Z -DSTAGEDIR=<připravená distribuce> -DOUTFILE=<exe> installer.nsi
 ; Instaluje pro aktuálního uživatele do %LOCALAPPDATA%\Programs, bez práv správce.
 
@@ -18,6 +21,8 @@ SetCompressor /SOLID lzma
 !define APPNAME "Video convertor pro TV"
 !define APPKEY "video-convertor"
 !define PUBLISHER "Jan Čejka"
+!define PUBLISHER_URL "https://dev.jancejka.cz"
+!define REPO_URL "https://github.com/Cuchulain/video-convertor"
 !define REGKEY "Software\${APPKEY}"
 !define UNINSTKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPKEY}"
 !define SMDIR "$SMPROGRAMS\${APPNAME}"
@@ -30,7 +35,7 @@ InstallDir "$LOCALAPPDATA\Programs\${APPKEY}"
 InstallDirRegKey HKCU "${REGKEY}" "InstallDir"
 RequestExecutionLevel user
 ManifestDPIAware true
-BrandingText "${APPNAME} ${VERSION}"
+BrandingText "${APPNAME} ${VERSION} – ${PUBLISHER_URL}"
 ; podrobnosti ukazují průběh stahování FFmpeg
 ShowInstDetails show
 ShowUninstDetails show
@@ -40,12 +45,15 @@ ShowUninstDetails show
 
 !define MUI_ABORTWARNING
 !define MUI_FINISHPAGE_TEXT "Video convertor je nainstalovaný.$\r$\n$\r$\nVideo převedete přetažením na zástupce „Převést pro TV“ (nabídka Start, případně plocha), nebo v terminálu příkazem:$\r$\n$\r$\nconvert-for-tv -Profile standard -Path D:\Video\film.mkv$\r$\n$\r$\nStav FFmpeg lze kdykoli ověřit zástupcem „Zkontrolovat FFmpeg“."
-!define MUI_FINISHPAGE_SHOWREADME "$WINDIR\notepad.exe"
+!define MUI_FINISHPAGE_SHOWREADME ""
 !define MUI_FINISHPAGE_SHOWREADME_TEXT "Zobrazit návod (README)"
 !define MUI_FINISHPAGE_SHOWREADME_FUNCTION ShowReadme
 !define MUI_FINISHPAGE_SHOWREADME_NOTCHECKED
+!define MUI_FINISHPAGE_LINK "${REPO_URL}"
+!define MUI_FINISHPAGE_LINK_LOCATION "${REPO_URL}"
 
 !insertmacro MUI_PAGE_WELCOME
+!insertmacro MUI_PAGE_LICENSE "${STAGEDIR}/LICENSE"
 !insertmacro MUI_PAGE_COMPONENTS
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
@@ -59,8 +67,9 @@ VIAddVersionKey /LANG=${LANG_CZECH} "ProductName" "${APPNAME}"
 VIAddVersionKey /LANG=${LANG_CZECH} "ProductVersion" "${VERSION}"
 VIAddVersionKey /LANG=${LANG_CZECH} "FileVersion" "${VERSION}"
 VIAddVersionKey /LANG=${LANG_CZECH} "FileDescription" "Instalátor ${APPNAME}"
-VIAddVersionKey /LANG=${LANG_CZECH} "CompanyName" "${PUBLISHER}"
-VIAddVersionKey /LANG=${LANG_CZECH} "LegalCopyright" "© ${PUBLISHER}"
+VIAddVersionKey /LANG=${LANG_CZECH} "CompanyName" "${PUBLISHER}, ${PUBLISHER_URL}"
+VIAddVersionKey /LANG=${LANG_CZECH} "LegalCopyright" "© ${PUBLISHER}, licence MIT"
+VIAddVersionKey /LANG=${LANG_CZECH} "Comments" "${REPO_URL}"
 
 Function ShowReadme
   Exec '"$WINDIR\notepad.exe" "$INSTDIR\README.md"'
@@ -80,6 +89,9 @@ Section "Video convertor (povinné)" SecMain
   WriteRegStr HKCU "${UNINSTKEY}" "DisplayName" "${APPNAME}"
   WriteRegStr HKCU "${UNINSTKEY}" "DisplayVersion" "${VERSION}"
   WriteRegStr HKCU "${UNINSTKEY}" "Publisher" "${PUBLISHER}"
+  WriteRegStr HKCU "${UNINSTKEY}" "URLInfoAbout" "${PUBLISHER_URL}"
+  WriteRegStr HKCU "${UNINSTKEY}" "HelpLink" "${REPO_URL}"
+  WriteRegStr HKCU "${UNINSTKEY}" "URLUpdateInfo" "${REPO_URL}/releases"
   WriteRegStr HKCU "${UNINSTKEY}" "InstallLocation" "$INSTDIR"
   WriteRegStr HKCU "${UNINSTKEY}" "UninstallString" '"$INSTDIR\uninstall.exe"'
   WriteRegStr HKCU "${UNINSTKEY}" "QuietUninstallString" '"$INSTDIR\uninstall.exe" /S'
@@ -92,6 +104,7 @@ Section "Video convertor (povinné)" SecMain
     `-NoExit -NoProfile -ExecutionPolicy Bypass -Command "Set-Location -LiteralPath '$INSTDIR'; Write-Host 'Příklad: .\convert-for-tv.cmd -Profile standard -Path D:\Video\film.mkv'"`
   CreateShortcut "${SMDIR}\Návod (README).lnk" "$WINDIR\notepad.exe" '"$INSTDIR\README.md"'
   CreateShortcut "${SMDIR}\Zkontrolovat FFmpeg.lnk" "$INSTDIR\ffmpeg-setup.cmd"
+  WriteINIStr "${SMDIR}\Web projektu.url" "InternetShortcut" "URL" "${REPO_URL}"
   CreateShortcut "${SMDIR}\Odinstalovat.lnk" "$INSTDIR\uninstall.exe"
 SectionEnd
 
@@ -123,8 +136,8 @@ SectionEnd
 !insertmacro MUI_FUNCTION_DESCRIPTION_BEGIN
   !insertmacro MUI_DESCRIPTION_TEXT ${SecMain} "Skripty pro převod videa, spouštěče a dokumentace."
   !insertmacro MUI_DESCRIPTION_TEXT ${SecPath} "Umožní spouštět convert-for-tv, extract-ass a fix-audio-offsets z libovolného terminálu."
-  !insertmacro MUI_DESCRIPTION_TEXT ${SecFfmpeg} "Ověří, že je k dispozici FFmpeg se všemi potřebnými kodeky a libass. Pokud ne, stáhne ověřené sestavení z gyan.dev (asi 115 MB) do složky programu."
   !insertmacro MUI_DESCRIPTION_TEXT ${SecDesktop} "Zástupce „Převést pro TV“ na ploše: přetáhněte na něj videa a převedou se profilem standard."
+  !insertmacro MUI_DESCRIPTION_TEXT ${SecFfmpeg} "Ověří, že je k dispozici FFmpeg se všemi potřebnými kodeky a libass. Pokud ne, stáhne ověřené sestavení z gyan.dev (asi 115 MB) do složky programu."
 !insertmacro MUI_FUNCTION_DESCRIPTION_END
 
 Section "Uninstall"
@@ -143,17 +156,18 @@ Section "Uninstall"
   Delete "$INSTDIR\README.md"
   Delete "$INSTDIR\REQUIREMENTS.md"
   Delete "$INSTDIR\CHANGELOG.md"
+  Delete "$INSTDIR\LICENSE"
   Delete "$INSTDIR\VERSION"
   Delete "$INSTDIR\scripts\windows\*.ps1"
   RMDir "$INSTDIR\scripts\windows"
   RMDir "$INSTDIR\scripts"
   Delete "$INSTDIR\tools\user-path.ps1"
   Delete "$INSTDIR\tools\ffmpeg-setup.ps1"
+  RMDir "$INSTDIR\tools"
   ; FFmpeg stažený instalátorem (značka), nikdy cizí složku ffmpeg
   ${If} ${FileExists} "$INSTDIR\ffmpeg\.video-convertor"
     RMDir /r "$INSTDIR\ffmpeg"
   ${EndIf}
-  RMDir "$INSTDIR\tools"
   Delete "$INSTDIR\uninstall.exe"
   RMDir "$INSTDIR"
 
@@ -161,6 +175,7 @@ Section "Uninstall"
   Delete "${SMDIR}\Terminál Video convertor.lnk"
   Delete "${SMDIR}\Návod (README).lnk"
   Delete "${SMDIR}\Zkontrolovat FFmpeg.lnk"
+  Delete "${SMDIR}\Web projektu.url"
   Delete "${SMDIR}\Odinstalovat.lnk"
   RMDir "${SMDIR}"
   Delete "${DESKTOPLNK}"

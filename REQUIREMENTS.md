@@ -31,9 +31,9 @@ Povinné:
 - Windows PowerShell 5.1 (součást Windows 10/11) nebo PowerShell 7+
 - 64bitový FFmpeg s `ffmpeg.exe`, `ffprobe.exe`, `libx264`, `libx265`, `aac` a `ac3`; oba programy musí být dostupné v `PATH`
 - podpora ASS titulků: FFmpeg s `libass` (filtry `ass` a `subtitles`) pro vypalování titulků; sestavení Gyan.FFmpeg ji obsahuje
+- Arial (standardní součást Windows)
 
 Instalátor (nebo `ffmpeg-setup.cmd` v rozbaleném zipu) FFmpeg zkontroluje a pokud chybí nebo nevyhovuje, stáhne sestavení gyan.dev „essentials“ do složky programu. Ruční instalace níže je potřeba jen tehdy, když chcete systémový FFmpeg.
-- Arial (standardní součást Windows)
 
 Pro volitelnou NVIDIA akceleraci:
 

@@ -12,6 +12,7 @@ Formát vychází z [Keep a Changelog](https://keepachangelog.com/cs/1.1.0/), ve
 - Spouštěče `convert-for-tv.cmd`, `extract-ass.cmd`, `fix-audio-offsets.cmd` (bez nutnosti měnit ExecutionPolicy) a `prevest-pro-tv.cmd` pro přetažení videí myší.
 - `build/build-windows.sh`: sestavení zipu a instalátoru z repozitáře včetně kontrol (BOM, CRLF, syntaxe `.ps1`); soubor `VERSION`.
 - Přepínač `--keep-ass` / `-KeepAss` pro uložení extrahovaných titulků vedle videa.
+- Licence MIT; autor a odkazy (https://dev.jancejka.cz, repozitář) v hlavičkách skriptů, nápovědě, README a instalátoru (stránka s licencí, odkazy v Nastavení → Aplikace, zástupce „Web projektu“).
 - Sdílená heuristika výběru stop (`scripts/lib/tracks.sh`, ve Windows `VideoTools.ps1`): jazyk i z názvu stopy („CZ“, „čeština“, „Czech“…), forced podle názvu („forced“, „forc“, „vynucené“, „cizí“, „nápisy“…), příznaku a počtu titulků.
 - Přehled stop s výsledkem heuristiky na začátku zpracování a varování ve sporných situacích.
 - Ruční volba stop: `--audio N`, `--audio-lang cs|sk|cizi`, `--sub N|soubor|none` (Windows: `-Audio`, `-AudioLang`, `-Sub`).

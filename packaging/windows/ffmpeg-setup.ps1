@@ -1,4 +1,7 @@
-﻿# Zkontroluje FFmpeg (ffmpeg, ffprobe, potřebné kodeky a libass). Pokud chybí
+﻿# Video convertor pro TV – Jan Čejka, https://dev.jancejka.cz
+# https://github.com/Cuchulain/video-convertor (licence MIT)
+
+# Zkontroluje FFmpeg (ffmpeg, ffprobe, potřebné kodeky a libass). Pokud chybí
 # nebo nevyhovuje, stáhne ověřené sestavení z gyan.dev do složky ffmpeg
 # v kořeni programu; skripty ho tam najdou samy (VideoTools.ps1).
 # Volá ho instalátor a spouštěč ffmpeg-setup.cmd.
@@ -83,7 +86,7 @@ if (-not $Force) {
         Write-Host "FFmpeg vyhovuje: $((Get-Command ffmpeg).Source)"
         exit 0
     }
-    Write-Host "FFmpeg nevyhovuje: $($problems -join ', ')"
+    Write-Host "FFmpeg nevyhovuje, chybí: $($problems -join ', ')"
 }
 if ($CheckOnly) { exit 1 }
 
@@ -122,7 +125,7 @@ try {
     Remove-Item -LiteralPath (Join-Path $bin 'ffplay.exe') -ErrorAction SilentlyContinue
 
     $problems = @(Get-FfmpegProblems -Ffmpeg (Join-Path $bin 'ffmpeg.exe') -Ffprobe (Join-Path $bin 'ffprobe.exe'))
-    if ($problems.Count) { throw "Stažený FFmpeg nevyhovuje: $($problems -join ', ')" }
+    if ($problems.Count) { throw "Stažený FFmpeg nevyhovuje, chybí: $($problems -join ', ')" }
 
     if (Test-Path -LiteralPath $InstallDir) {
         # Smazat jen složku, kterou vytvořil tento skript (značka), nikdy cizí.

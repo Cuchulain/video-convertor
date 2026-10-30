@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Video convertor pro TV – Jan Čejka, https://dev.jancejka.cz
+# https://github.com/Cuchulain/video-convertor (licence MIT)
+
 # fix-audio-offsets.sh
 #
 # Použití:
@@ -36,6 +39,9 @@ Přepínače:
   --dry-run          Jen vypíše, co by se opravovalo
   --threshold SEC    Prah v sekundách, výchozí 0.050
   -h, --help         Nápověda
+
+Video convertor pro TV – Jan Čejka, https://dev.jancejka.cz
+https://github.com/Cuchulain/video-convertor (licence MIT)
 EOF
 }
 

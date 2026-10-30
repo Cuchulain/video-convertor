@@ -54,7 +54,7 @@ Samostatná extrakce titulků a oprava audio offsetu:
 
 ### Instalace
 
-Nejjednodušší je instalátor `video-convertor-<verze>-setup.exe` (sestavení viz [Sestavení balíčků pro Windows](#sestavení-balíčků-pro-windows)). Instaluje jen pro aktuálního uživatele do `%LOCALAPPDATA%\Programs\video-convertor` a nepotřebuje práva správce. Nabízí:
+Nejjednodušší je instalátor `video-convertor-<verze>-setup.exe` z [Releases](https://github.com/Cuchulain/video-convertor/releases) (sestavení viz [Sestavení balíčků pro Windows](#sestavení-balíčků-pro-windows)). Instaluje jen pro aktuálního uživatele do `%LOCALAPPDATA%\Programs\video-convertor` a nepotřebuje práva správce. Nabízí:
 
 - zástupce v nabídce Start: **Převést pro TV (přetáhněte video)**, terminál ve složce programu, návod a odinstalaci,
 - přidání do uživatelské proměnné `PATH`, takže v libovolném terminálu funguje `convert-for-tv`, `extract-ass` a `fix-audio-offsets`,
@@ -235,3 +235,10 @@ Vedle balíčků vznikne `SHA256SUMS.txt`. Před sestavením skript ověří, ž
 - [ROADMAP.md](ROADMAP.md) – plánované úpravy a co je potřeba ověřit
 - [AGENTS.md](AGENTS.md) – pokyny pro vývoj (struktura, konvence, testování), i pro AI agenty
 - [MEMORY.md](MEMORY.md) – rozhodnutí a jejich důvody, poučení z chyb
+
+## Autor a licence
+
+Autor: Jan Čejka, https://dev.jancejka.cz
+Repozitář: https://github.com/Cuchulain/video-convertor (hotové balíčky pro Windows v [Releases](https://github.com/Cuchulain/video-convertor/releases))
+
+Licence [MIT](LICENSE). FFmpeg, který instalátor případně stáhne, je samostatný program od gyan.dev pod vlastní licencí (GPL).

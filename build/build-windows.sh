@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Video convertor pro TV – Jan Čejka, https://dev.jancejka.cz
+# https://github.com/Cuchulain/video-convertor (licence MIT)
+
 # build-windows.sh
 #
 # Sestaví distribuci pro Windows do dist/:
@@ -94,7 +97,7 @@ mkdir -p "$PKG/scripts/windows" "$PKG/tools" "$DIST"
 cp "$ROOT"/packaging/windows/*.cmd "$PKG/"
 cp "$ROOT"/scripts/windows/*.ps1 "$PKG/scripts/windows/"
 cp "$ROOT"/packaging/windows/user-path.ps1 "$ROOT"/packaging/windows/ffmpeg-setup.ps1 "$PKG/tools/"
-cp "$ROOT"/README.md "$ROOT"/REQUIREMENTS.md "$ROOT"/CHANGELOG.md "$ROOT"/VERSION "$PKG/"
+cp "$ROOT"/README.md "$ROOT"/REQUIREMENTS.md "$ROOT"/CHANGELOG.md "$ROOT"/LICENSE "$ROOT"/VERSION "$PKG/"
 
 # --- Zip --------------------------------------------------------------------
 

@@ -1,4 +1,7 @@
-﻿[CmdletBinding()]
+﻿# Video convertor pro TV – Jan Čejka, https://dev.jancejka.cz
+# https://github.com/Cuchulain/video-convertor (licence MIT)
+
+[CmdletBinding()]
 param(
     [switch] $DryRun,
     [double] $Threshold = 0.050,

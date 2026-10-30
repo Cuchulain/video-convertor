@@ -4,6 +4,10 @@ Projektová paměť: rozhodnutí, jejich důvody a poučení, která nejsou zře
 
 ## Rozhodnutí
 
+### 2026-10-30 – Jen čeština, veřejný repozitář s licencí MIT
+- Vícejazyčnost (anglický instalátor a README) byla zvažována a zamítnuta: nástroj je specifický pro české a slovenské prostředí.
+- Repozitář je veřejný (releasy z privátního repa by si nikdo jiný nestáhl). Licence MIT, autor commitů `dev@jancejka.cz` (původní pracovní e-mail byl z historie přepsán před zveřejněním).
+
 ### 2026-10-30 – FFmpeg pro Windows: vlastní stažené sestavení místo winget
 - Instalátor ověří FFmpeg včetně kodeků a libass; když nevyhovuje, stáhne gyan.dev „essentials“ do `<instalace>\ffmpeg` a skripty ho preferují (VideoTools.ps1 ho dá na začátek PATH procesu).
 - Proč ne winget: chybí na starších Windows 10 a LTSC, mění systémový PATH a výsledek není pod kontrolou.
@@ -61,6 +65,8 @@ Projektová paměť: rozhodnutí, jejich důvody a poučení, která nejsou zře
 - Základní Homebrew formule `ffmpeg` neobsahuje libass → nelze vypalovat ASS. `ffmpeg-full` ji má, ale je keg-only, proto ho skripty hledají přímo v `/opt/homebrew/opt/ffmpeg-full/bin` (a `/usr/local/opt/...`).
 
 ## Poučení (chyby, na které jsme narazili)
+
+- `$x = if (...) { @(...) } else { @(...) }` vrátí při prázdném poli `$null`; `$x.Count` pak pod StrictMode spadne. Chyba byla v prvním (neveřejném) sestavení 0.2.0, protože se testovala jen funkce, ne celý `convert-for-tv.ps1`.
 
 - Windows `.ps1` bez BOM: PS 5.1 je čte jako ANSI, rozbité české hlášky a regulární výrazy s diakritikou. Platilo i pro distribuovaný zip.
 - PowerShell nerozlišuje velikost písmen proměnných: smyčková `$audio` přepsala parametr `[string] $Audio`.

@@ -1,4 +1,6 @@
 @echo off
+rem Video convertor pro TV - Jan Cejka, https://dev.jancejka.cz
+rem https://github.com/Cuchulain/video-convertor (MIT)
 rem Pro pretazeni videi mysi na tento soubor nebo jeho zastupce:
 rem prevede je profilem standard a pocka na klavesu, aby slo precist vysledek.
 if "%~1"=="" (

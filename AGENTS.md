@@ -28,7 +28,8 @@ Sada skriptů nad FFmpeg, která převádí videa (MKV, MP4, AVI…) do MP4 pro 
 ## Zásadní pravidla
 
 - **Parita platforem.** Každá změna chování v bash verzi musí být i ve Windows verzi (`scripts/windows/`) a naopak. Heuristika v `lib/tracks.sh` a `VideoTools.ps1` musí dávat stejné výsledky (stejné regulární výrazy, prahy, pořadí priorit, texty hlášek).
-- **Čeština.** Komentáře, hlášky, nápověda i dokumentace jsou česky. Identifikátory v kódu anglicky/zkratkami jako dosud (`SEL_AIDX`, `TRK_LANG`, `Select-Audio`).
+- **Čeština.** Projekt je určený pro české a slovenské prostředí; komentáře, hlášky, nápověda, instalátor i dokumentace jsou jen česky (vícejazyčnost je záměrně vynechaná).
+- **Autor a licence.** Nové soubory dostanou hlavičku `Video convertor pro TV – Jan Čejka, https://dev.jancejka.cz` + odkaz na repozitář (licence MIT); v `.cmd` bez diakritiky. Identifikátory v kódu anglicky/zkratkami jako dosud (`SEL_AIDX`, `TRK_LANG`, `Select-Audio`).
 - **Styl kódu.** Drž se okolního kódu: bash s `set -euo pipefail`, funkce vracejí výsledek přes globální proměnné (`SEL_*`, `TRK_*`, `_TRK_R`), komentář nad každou funkcí s popisem parametrů (`$1=...`).
 - **Verze.** Při vydání zvyš `VERSION`, přejmenuj sekci v CHANGELOG.md (`## [X.Y.Z] – datum`, workflow z ní bere poznámky), commitni a pushni tag `vX.Y.Z`; release vytvoří GitHub Actions. Výstupy v `dist/` se necommitují.
 - **Dokumentace.** Změnu chování nebo parametrů zapiš do README.md (a REQUIREMENTS.md u závislostí), přidej záznam do CHANGELOG.md, nová poučení do MEMORY.md a hotové/nové body do ROADMAP.md.
@@ -49,6 +50,7 @@ Sada skriptů nad FFmpeg, která převádí videa (MKV, MP4, AVI…) do MP4 pro 
 - Kompatibilita s **Windows PowerShell 5.1**: žádné `??`, ternární operátor ani jiné novinky PS 7. `Set-StrictMode -Version 2.0`, k volitelným vlastnostem přistupuj přes `$obj.PSObject.Properties['x']`.
 - Soubory `.ps1` musí být **UTF-8 s BOM**, jinak je PS 5.1 čte jako ANSI a rozbije češtinu i regulární výrazy s diakritikou.
 - Proměnné nerozlišují velikost písmen: `$audio` přepíše parametr `$Audio` (který je navíc typu `[string]`). Lokální proměnné pojmenovávej odlišně od parametrů skriptu.
+- Přiřazení výsledku `if` (`$x = if (...) { @() } else { ... }`) rozbalí prázdné pole na `$null` a pod StrictMode pak `$x.Count` spadne. Obal celý výraz: `$x = @(if (...) { ... } else { ... })`.
 - `$args` je automatická proměnná; v `convert-for-tv.ps1` se historicky používá pro argumenty FFmpeg, nepřidávej další použití jinde.
 - Kódová stránka 1250 je v PS 7 (.NET Core) dostupná až po `RegisterProvider` (viz `Get-Windows1250`).
 - `powershell -File skript.ps1 -Path a b` selže: parametr s `ValueFromRemainingArguments` přebírá více hodnot jen pozičně (`skript.ps1 a b`) nebo oddělené čárkou.
@@ -92,6 +94,6 @@ scripts/convert-for-tv.sh --dry-run base.mkv
 pwsh -NoProfile -File scripts/windows/convert-for-tv.ps1 -Hardware Cpu -DryRun -Path base.mkv
 ```
 
-Výstup `--dry-run` z bash a Windows verze musí vybrat stejné stopy. U vypálených titulků zkontroluj snímek (`ffmpeg -ss 1.5 -i tv/x.mp4 -frames:v 1 x.png`), u vložených `ffprobe -show_entries stream_disposition=default:stream_tags=language`.
+Výstup `--dry-run` z bash a Windows verze musí vybrat stejné stopy. Po každé změně `.ps1` spusť celý `convert-for-tv.ps1 -DryRun` přes `pwsh`, ne jen upravenou funkci (kontrola syntaxe v buildu chyby za běhu neodhalí). U vypálených titulků zkontroluj snímek (`ffmpeg -ss 1.5 -i tv/x.mp4 -frames:v 1 x.png`), u vložených `ffprobe -show_entries stream_disposition=default:stream_tags=language`.
 
 Scénáře, které je dobré po změně heuristiky projít: forced bez příznaku jen s „forc“ v názvu, špatný jazykový tag s „CZ“ v názvu, plné titulky s chybným příznakem forced, neurčený jazyk zvuku i titulků, český zvuk jen podle názvu stopy, titulky vedle videa v CP1250 bez jazyka v názvu, MicroDVD `.sub`, AVI s H.264 (kopie videa).

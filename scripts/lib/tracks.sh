@@ -1,4 +1,6 @@
 # shellcheck shell=bash
+# Video convertor pro TV – Jan Čejka, https://dev.jancejka.cz
+# https://github.com/Cuchulain/video-convertor (licence MIT)
 #
 # tracks.sh — sdílená heuristika pro rozpoznání jazyka a druhu (forced/full)
 # audio a titulkových stop. Načítá se přes `source` z convert-for-tv.sh

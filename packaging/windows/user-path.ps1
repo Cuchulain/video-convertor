@@ -1,4 +1,7 @@
-﻿# Přidá nebo odebere adresář v uživatelské proměnné PATH (volá instalátor).
+﻿# Video convertor pro TV – Jan Čejka, https://dev.jancejka.cz
+# https://github.com/Cuchulain/video-convertor (licence MIT)
+
+# Přidá nebo odebere adresář v uživatelské proměnné PATH (volá instalátor).
 # Hodnota se čte a zapisuje přímo v registru jako REG_EXPAND_SZ, aby se
 # nerozbily položky jako %USERPROFILE%\bin ([Environment]::SetEnvironmentVariable
 # by je rozvinul a uložil jako REG_SZ).

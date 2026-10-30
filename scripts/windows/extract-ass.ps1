@@ -1,4 +1,7 @@
-﻿[CmdletBinding()]
+﻿# Video convertor pro TV – Jan Čejka, https://dev.jancejka.cz
+# https://github.com/Cuchulain/video-convertor (licence MIT)
+
+[CmdletBinding()]
 param(
     [Parameter(Position = 0, ValueFromRemainingArguments = $true)]
     [string[]] $Path = @((Get-Location).Path)

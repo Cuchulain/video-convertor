@@ -1,4 +1,7 @@
-﻿[CmdletBinding()]
+﻿# Video convertor pro TV – Jan Čejka, https://dev.jancejka.cz
+# https://github.com/Cuchulain/video-convertor (licence MIT)
+
+[CmdletBinding()]
 param(
     [ValidateSet('standard', 'akcni', 'serialy', 'hd10')]
     [string] $Profile = 'standard',
@@ -299,7 +302,8 @@ if ($Sub -and $Sub -ne 'none' -and $Sub -notmatch '^\d+$') {
 }
 
 # Potřebné kodeky; vypalování titulků navíc libass (hd10 titulky nevypaluje).
-$ffmpegProblems = if ($Profile -eq 'hd10') { @(Get-FfmpegProblems -Filters @()) } else { @(Get-FfmpegProblems) }
+# @() kolem if: přiřazení výsledku if rozbalí prázdné pole na $null
+$ffmpegProblems = @(if ($Profile -eq 'hd10') { Get-FfmpegProblems -Filters @() } else { Get-FfmpegProblems })
 if ($ffmpegProblems.Count) {
     throw "FFmpeg nevyhovuje, chybí: $($ffmpegProblems -join ', '). $($script:FfmpegHint)"
 }
