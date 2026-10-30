@@ -1,0 +1,59 @@
+# Po pushnutí tagu vX.Y.Z sestaví balíčky pro Windows a založí GitHub Release.
+# Tag musí odpovídat souboru VERSION, poznámky se berou z CHANGELOG.md.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Kontrola verze
+        run: |
+          version="$(tr -d ' \r\n' < VERSION)"
+          if [ "${GITHUB_REF_NAME}" != "v${version}" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} neodpovídá souboru VERSION (${version})"
+            exit 1
+          fi
+          echo "VERSION=${version}" >> "$GITHUB_ENV"
+
+      - name: Instalace NSIS
+        run: sudo apt-get update && sudo apt-get install -y nsis zip
+
+      # pwsh je na ubuntu-latest předinstalovaný -> proběhne i kontrola syntaxe .ps1
+      - name: Sestavení balíčků
+        run: build/build-windows.sh --require-installer
+
+      - name: Poznámky k vydání
+        run: |
+          awk -v v="${VERSION}" '
+            index($0, "## [" v "]") == 1 { found = 1; next }
+            found && /^## \[/ { exit }
+            found { print }
+          ' CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "::error::V CHANGELOG.md chybí sekce ## [${VERSION}]"
+            exit 1
+          fi
+          {
+            echo
+            echo "---"
+            echo "**Instalace:** stáhněte \`video-convertor-${VERSION}-setup.exe\` (instaluje pro aktuálního uživatele, bez práv správce; FFmpeg případně stáhne sám). Instalátor není podepsaný, SmartScreen může zobrazit varování (Další informace → Přesto spustit)."
+            echo
+            echo "Přenosná verze: \`video-convertor-windows-${VERSION}.zip\`. Kontrolní součty: \`SHA256SUMS.txt\`."
+          } >> release-notes.md
+
+      - name: GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" dist/* \
+            --title "Video convertor ${VERSION}" \
+            --notes-file release-notes.md

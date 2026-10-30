@@ -1,12 +1,51 @@
 ﻿Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 
+# FFmpeg stažený instalátorem nebo ffmpeg-setup.cmd (složka ffmpeg v kořeni
+# instalace/zipu) má přednost před systémovým.
+$script:PrivateFfmpegBin = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\ffmpeg\bin'))
+if (Test-Path -LiteralPath (Join-Path $script:PrivateFfmpegBin 'ffmpeg.exe')) {
+    $env:PATH = $script:PrivateFfmpegBin + [IO.Path]::PathSeparator + $env:PATH
+}
+
+$script:FfmpegHint = 'Spusťte ffmpeg-setup.cmd ve složce programu (stáhne vhodné sestavení), nebo viz REQUIREMENTS.md.'
+
 function Assert-VideoTools {
     foreach ($command in @('ffmpeg', 'ffprobe')) {
         if (-not (Get-Command $command -ErrorAction SilentlyContinue)) {
-            throw "Chybí příkaz '$command'. Nainstalujte FFmpeg a přidejte jeho složku bin do PATH."
+            throw "Chybí příkaz '$command'. $($script:FfmpegHint)"
         }
     }
+}
+
+# Enkodéry a filtry, které skripty potřebují (NVENC je volitelný).
+$script:RequiredEncoders = @('libx264', 'libx265', 'aac', 'ac3')
+$script:RequiredFilters = @('ass', 'subtitles')
+
+# Vrátí seznam nedostatků FFmpeg (prázdný = vyhovuje): chybějící ffmpeg/ffprobe,
+# enkodéry a filtry pro vypalování titulků (libass).
+function Get-FfmpegProblems([string] $Ffmpeg = 'ffmpeg', [string] $Ffprobe = 'ffprobe',
+                            [string[]] $Encoders = $script:RequiredEncoders,
+                            [string[]] $Filters = $script:RequiredFilters) {
+    $problems = @()
+    if (-not (Get-Command $Ffmpeg -ErrorAction SilentlyContinue)) { return @('chybí ffmpeg') }
+    if (-not (Get-Command $Ffprobe -ErrorAction SilentlyContinue)) { $problems += 'chybí ffprobe' }
+
+    $oldPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $encoderList = (& $Ffmpeg -hide_banner -encoders 2>$null) -join "`n"
+        $filterList = (& $Ffmpeg -hide_banner -filters 2>$null) -join "`n"
+    } finally {
+        $ErrorActionPreference = $oldPreference
+    }
+    foreach ($encoder in $Encoders) {
+        if ($encoderList -notmatch "(?m)^\s*\S+\s+$([regex]::Escape($encoder))\s") { $problems += "enkodér $encoder" }
+    }
+    foreach ($filter in $Filters) {
+        if ($filterList -notmatch "(?m)^\s*\S+\s+$([regex]::Escape($filter))\s") { $problems += "filtr $filter (libass)" }
+    }
+    return $problems
 }
 
 # Podporované vstupní formáty.

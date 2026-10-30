@@ -36,7 +36,9 @@ fi
 #
 # ffmpeg/ffprobe konvertor videí pro TV (náhrada HandBrake) s HW akcelerací
 # (VideoToolbox) na macOS. Orchestruje celý pipeline:
-#   1. extract-ass.sh        -> vytáhne CZ/SK titulky do .cs.ass / .sk.ass
+#   1. extract-ass.sh        -> jen s --keep-ass: vytáhne CZ/SK titulky do
+#                              .cs.ass / .sk.ass vedle videa (pro jiné přehrávače;
+#                              konverze sama vypaluje z dočasné kopie)
 #                              (neprovádí se pro profil hd10)
 #   2. ffmpeg konverze       -> výběr audia dle jazyka, titulky, škála
 #   3. fix-audio-offsets.sh  -> srovná audio offset výsledku
@@ -57,7 +59,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 PROFILE="standard"
 DRY_RUN="0"
-DO_EXTRACT="1"
+DO_EXTRACT="0"   # --keep-ass
 DO_FIX_OFFSET="1"
 THRESHOLD="0.050"
 OUTDIR=""
@@ -88,7 +90,9 @@ Přepínače:
   --cq N             constant quality pro hd10 (0-100, vyšší = lepší, výchozí 60)
   --threshold SEC    prah pro fix-audio-offsets.sh (výchozí 0.050)
   --outdir DIR       kam ukládat výstupy (výchozí: podadresář "tv" vedle vstupu)
-  --no-extract       nespouštět extract-ass.sh (titulky už jsou vytažené)
+  --keep-ass         ponechat vedle videa CZ/SK titulky vytažené do .ass
+                     (výchozí: nic se nevytváří, vypaluje se z dočasné kopie)
+  --no-extract       zastaralé, odpovídá výchozímu chování
   --no-fix-offset    nespouštět fix-audio-offsets.sh
   --dry-run          jen vypsat rozhodnutí, nic nekódovat
   -h, --help         nápověda
@@ -871,7 +875,8 @@ main() {
       --audio)   [[ $# -ge 2 ]] || { err "Chybí hodnota za --audio"; exit 1; }; AUDIO_OPT="$2"; shift 2 ;;
       --audio-lang) [[ $# -ge 2 ]] || { err "Chybí hodnota za --audio-lang"; exit 1; }; AUDIO_LANG_OPT="$2"; shift 2 ;;
       --sub)     [[ $# -ge 2 ]] || { err "Chybí hodnota za --sub"; exit 1; }; SUB_OPT="$2"; shift 2 ;;
-      --no-extract)    DO_EXTRACT="0"; shift ;;
+      --keep-ass)      DO_EXTRACT="1"; shift ;;
+      --no-extract)    DO_EXTRACT="0"; shift ;;  # zastaralé, výchozí chování
       --no-fix-offset) DO_FIX_OFFSET="0"; shift ;;
       --dry-run)       DRY_RUN="1"; shift ;;
       -h|--help)       usage; exit 0 ;;
@@ -901,10 +906,28 @@ main() {
     SUB_OPT="$(cd "$(dirname "$SUB_OPT")" && pwd)/$(basename "$SUB_OPT")"
   fi
 
-  # vypalování titulků potřebuje FFmpeg s libass (filtr ass)
-  if [[ "$PROFILE" != "hd10" && "$(ffmpeg -hide_banner -filters 2>/dev/null || true)" != *" ass "* ]]; then
-    err "FFmpeg nemá filtr 'ass' (chybí libass), titulky nelze vypálit."
-    err "macOS: brew install ffmpeg-full; Linux: balík ffmpeg s libass (viz REQUIREMENTS.md)."
+  # Potřebné kodeky; vypalování titulků navíc libass (hd10 titulky nevypaluje).
+  # Výstup se ukládá do proměnné: "ffmpeg | grep -q" by pod pipefail selhal na SIGPIPE.
+  local encoders filters missing="" x
+  encoders="$(ffmpeg -hide_banner -encoders 2>/dev/null || true)"
+  filters="$(ffmpeg -hide_banner -filters 2>/dev/null || true)"
+  local -a need_enc=(aac ac3)
+  if [[ "$VIDEO_BACKEND" == "videotoolbox" ]]; then
+    need_enc+=(h264_videotoolbox hevc_videotoolbox)
+  else
+    need_enc+=(libx264 libx265)
+  fi
+  for x in "${need_enc[@]}"; do
+    [[ "$encoders" == *" $x "* ]] || missing+=" enkodér $x,"
+  done
+  if [[ "$PROFILE" != "hd10" ]]; then
+    for x in ass subtitles; do
+      [[ "$filters" == *" $x "* ]] || missing+=" filtr $x (libass),"
+    done
+  fi
+  if [[ -n "$missing" ]]; then
+    err "FFmpeg nevyhovuje, chybí:${missing%,}"
+    err "macOS: brew install ffmpeg-full; Linux: balík ffmpeg s libass, libx264 a libx265 (viz REQUIREMENTS.md)."
     exit 1
   fi
 

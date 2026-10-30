@@ -52,10 +52,35 @@ Samostatná extrakce titulků a oprava audio offsetu:
 
 ## Windows 10/11
 
-Spusťte PowerShell nebo Windows Terminal v kořeni projektu. Při prvním spuštění může být potřeba povolit lokální skripty pro aktuální účet:
+### Instalace
+
+Nejjednodušší je instalátor `video-convertor-<verze>-setup.exe` (sestavení viz [Sestavení balíčků pro Windows](#sestavení-balíčků-pro-windows)). Instaluje jen pro aktuálního uživatele do `%LOCALAPPDATA%\Programs\video-convertor` a nepotřebuje práva správce. Nabízí:
+
+- zástupce v nabídce Start: **Převést pro TV (přetáhněte video)**, terminál ve složce programu, návod a odinstalaci,
+- přidání do uživatelské proměnné `PATH`, takže v libovolném terminálu funguje `convert-for-tv`, `extract-ass` a `fix-audio-offsets`,
+- volitelně zástupce **Převést pro TV** na ploše,
+- kontrolu FFmpeg včetně potřebných kodeků a libass; pokud chybí nebo nevyhovuje, stáhne ověřené sestavení z gyan.dev (asi 115 MB, kontrola SHA-256) do složky programu, systémový `PATH` nemění.
+
+Stav FFmpeg lze kdykoli ověřit nebo FFmpeg doinstalovat spouštěčem `ffmpeg-setup.cmd` (v nabídce Start „Zkontrolovat FFmpeg“). Funguje i v rozbaleném zipu. Parametry: `-CheckOnly` (jen kontrola), `-Force` (stáhnout znovu), `-ZipPath soubor.zip` (instalace bez internetu z předem staženého `ffmpeg-9.0.2-essentials_build.zip`). FFmpeg ve složce `ffmpeg` programu má přednost před systémovým.
+
+Odinstalace je v Nastavení → Aplikace nebo v nabídce Start; odebere i záznam v `PATH`. Instalátor není digitálně podepsaný, takže při prvním spuštění může SmartScreen zobrazit varování (Další informace → Přesto spustit).
+
+Přenosná varianta je zip `video-convertor-windows-<verze>.zip`: rozbalte ho kamkoli a používejte spouštěče `.cmd` ve složce `video-convertor`.
+
+Spouštěče `convert-for-tv.cmd`, `extract-ass.cmd` a `fix-audio-offsets.cmd` předají všechny parametry příslušnému PowerShell skriptu a spustí ho s `-ExecutionPolicy Bypass`. Není tedy potřeba měnit ExecutionPolicy ani odblokovávat soubory stažené z internetu. Na `prevest-pro-tv.cmd` (nebo jeho zástupce) lze myší přetáhnout jedno či více videí; převedou se profilem `standard`.
+
+```powershell
+convert-for-tv -Profile standard -Path "D:\Video\film.mkv"     # po instalaci s PATH
+.\convert-for-tv.cmd -DryRun "D:\Video\film.mkv"              # ve složce zipu
+```
+
+### Přímé spuštění skriptů
+
+Skripty `.ps1` lze spouštět i přímo z PowerShellu v kořeni projektu. Pak je potřeba povolit lokální skripty pro aktuální účet a u souborů stažených z internetu je odblokovat:
 
 ```powershell
 Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+Get-ChildItem -Recurse -Filter *.ps1 | Unblock-File
 ```
 
 Konverze souboru nebo složky:
@@ -88,7 +113,7 @@ Další příklady:
 .\scripts\windows\convert-for-tv.ps1 -DryRun -Path "D:\Video\film.mkv"
 
 # Vlastní výstupní složka a vypnutí dílčích kroků
-.\scripts\windows\convert-for-tv.ps1 -OutDir "E:\Hotovo" -NoExtract -NoFixOffset -Path "D:\Video"
+.\scripts\windows\convert-for-tv.ps1 -OutDir "E:\Hotovo" -NoFixOffset -Path "D:\Video"
 
 # Samostatné pomocné skripty
 .\scripts\windows\extract-ass.ps1 -Path "D:\Video\film.mkv"
@@ -161,7 +186,7 @@ Při zpracování celé složky platí ruční volba pro všechny soubory, hodí
 
 ## Titulky
 
-Pro profily `standard`, `akcni` a `serialy` se titulky vypalují do obrazu. Textové titulky se převedou do ASS (žluté Arial), obrazové PGS/VobSub se vypálí přes overlay. U obrazových titulků se neořezávají černé pruhy, protože v nich titulky často bývají. Skript navíc vyextrahuje textové CZ/SK titulky do souborů ASS vedle videa (forced stopy mají v názvu `force`).
+Pro profily `standard`, `akcni` a `serialy` se titulky vypalují do obrazu. Textové titulky se převedou do ASS (žluté Arial), obrazové PGS/VobSub se vypálí přes overlay. U obrazových titulků se neořezávají černé pruhy, protože v nich titulky často bývají. Titulky se k vypálení převádějí do dočasného souboru, který se po konverzi smaže; vedle videa nic nevzniká. S přepínačem `--keep-ass` (Windows `-KeepAss`) se navíc textové CZ/SK titulky uloží jako ASS vedle videa (forced stopy mají v názvu `force`), např. pro jiné přehrávače. Samostatně to umí `extract-ass.sh` / `extract-ass.ps1`.
 
 Profil `hd10` titulky nevypaluje. Vybranou textovou stopu vloží do MP4 jako výchozí `mov_text`. Obrazové titulky PGS/VobSub nelze do MP4 tímto způsobem vložit a skript je s varováním přeskočí.
 
@@ -169,6 +194,7 @@ Pokud byl jazyk stopy určen z názvu a tag zdroje je jiný, výstupní stopa do
 
 ## Důležité chování
 
+- Vedle videa nevznikají žádné soubory s titulky (jen s `--keep-ass` / `-KeepAss`).
 - Konverze může podle délky videa a výkonu CPU trvat dlouho, zejména HEVC Main10 na Linuxu a na Windows s GTX 980M.
 - `fix-audio-offsets` dočasně přejmenuje vstup na `*.original.*`; po úspěchu zálohu odstraní, při chybě ji obnoví.
 - Záporné audio offsety se pouze ohlásí a neupravují.
@@ -184,6 +210,23 @@ Původní rozhraní zůstává beze změny:
 ./scripts/extract-ass.sh film.mkv
 ./scripts/fix-audio-offsets.sh film.mp4
 ```
+
+## Sestavení balíčků pro Windows
+
+Zip a instalátor sestaví na macOS i Linuxu skript `build/build-windows.sh` z aktuálních souborů v repozitáři. Verze se bere ze souboru `VERSION`, výstupy jsou v `dist/`:
+
+```bash
+build/build-windows.sh                 # zip + instalátor (instalátor jen pokud je makensis)
+build/build-windows.sh --no-installer  # jen zip
+```
+
+Vedle balíčků vznikne `SHA256SUMS.txt`. Před sestavením skript ověří, že `.ps1` mají UTF-8 BOM, spouštěče `.cmd` konce řádků CRLF a že jdou `.ps1` naparsovat (pokud je k dispozici `pwsh`). Instalátor je v NSIS (`packaging/windows/installer.nsi`), protože jeho kompilátor `makensis` běží i mimo Windows. Potřebné nástroje jsou v [REQUIREMENTS.md](REQUIREMENTS.md#sestavení-balíčků-pro-windows).
+
+### Vydání verze
+
+1. Zvyšte verzi v souboru `VERSION` a v CHANGELOG.md přejmenujte sekci na `## [X.Y.Z] – datum`.
+2. Commitněte a pushněte, pak vytvořte a pushněte tag: `git tag vX.Y.Z && git push origin vX.Y.Z`.
+3. Workflow `.github/workflows/release.yml` ověří, že tag odpovídá `VERSION`, sestaví zip a instalátor a založí GitHub Release s poznámkami z CHANGELOG.md.
 
 ## Dokumentace
 

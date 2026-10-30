@@ -1,0 +1,2 @@
+# Spouštěče pro Windows musí mít konce řádků CRLF
+*.cmd text eol=crlf

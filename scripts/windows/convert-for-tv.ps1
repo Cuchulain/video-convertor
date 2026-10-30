@@ -8,6 +8,10 @@ param(
     [string] $Hardware = 'Auto',
     [double] $Threshold = 0.050,
     [string] $OutDir,
+    # Ponechat vedle videa CZ/SK titulky vytažené do .ass (pro jiné přehrávače).
+    # Výchozí: nic se nevytváří, vypaluje se z dočasné kopie.
+    [switch] $KeepAss,
+    # Zastaralé, odpovídá výchozímu chování.
     [switch] $NoExtract,
     [switch] $NoFixOffset,
     [switch] $DryRun,
@@ -294,12 +298,10 @@ if ($Sub -and $Sub -ne 'none' -and $Sub -notmatch '^\d+$') {
     $script:SubFile = (Resolve-Path -LiteralPath $Sub).ProviderPath
 }
 
-# Vypalování titulků potřebuje FFmpeg s libass (filtr ass).
-if ($Profile -ne 'hd10') {
-    $filterList = (& ffmpeg -hide_banner -filters 2>$null) -join "`n"
-    if ($filterList -notmatch '(?m)^\s*\S+\s+ass\s') {
-        throw "FFmpeg nemá filtr 'ass' (chybí libass), titulky nelze vypálit. Použijte plné sestavení FFmpeg (viz REQUIREMENTS.md)."
-    }
+# Potřebné kodeky; vypalování titulků navíc libass (hd10 titulky nevypaluje).
+$ffmpegProblems = if ($Profile -eq 'hd10') { @(Get-FfmpegProblems -Filters @()) } else { @(Get-FfmpegProblems) }
+if ($ffmpegProblems.Count) {
+    throw "FFmpeg nevyhovuje, chybí: $($ffmpegProblems -join ', '). $($script:FfmpegHint)"
 }
 
 $videoBackend = Resolve-VideoBackend $Hardware $Profile
@@ -308,7 +310,7 @@ Write-Host "Kódování videa: $videoBackend (požadováno: $Hardware)"
 $outputsDone = @{}
 foreach ($file in (Get-MediaFiles $Path)) {
     Write-Host "`n=== $file ==="
-    if (-not $DryRun -and -not $NoExtract -and $Profile -ne 'hd10') {
+    if (-not $DryRun -and $KeepAss -and $Profile -ne 'hd10') {
         & "$PSScriptRoot\extract-ass.ps1" -Path $file
         if (-not $?) { Write-Warning "Extrakce titulků selhala pro: $file" }
     }

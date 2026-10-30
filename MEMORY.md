@@ -4,6 +4,27 @@ Projektová paměť: rozhodnutí, jejich důvody a poučení, která nejsou zře
 
 ## Rozhodnutí
 
+### 2026-10-30 – FFmpeg pro Windows: vlastní stažené sestavení místo winget
+- Instalátor ověří FFmpeg včetně kodeků a libass; když nevyhovuje, stáhne gyan.dev „essentials“ do `<instalace>\ffmpeg` a skripty ho preferují (VideoTools.ps1 ho dá na začátek PATH procesu).
+- Proč ne winget: chybí na starších Windows 10 a LTSC, mění systémový PATH a výsledek není pod kontrolou.
+- Pevná verze 9.0.2 s SHA-256 ve skriptu (stejná verze, se kterou se testuje na macOS); záloha na aktuální release se součtem ze serveru, pokud by gyan.dev starý balíček stáhl.
+- Stažení přes HttpWebRequest s výpisem průběhu po 10 %, aby bylo v detailech instalátoru vidět, že se něco děje (115 MB). ffplay se maže (~100 MB navíc, nepotřebný).
+- Mazat se smí jen složka se značkou `.video-convertor`, aby instalace do sdílené složky nesmazala cizí FFmpeg.
+
+### 2026-10-30 – Vydávání přes tag a GitHub Actions
+- Release vzniká automaticky po pushnutí tagu `vX.Y.Z` (ubuntu-latest + apt nsis; pwsh je na runneru předinstalovaný, takže proběhne i kontrola syntaxe). Tag musí odpovídat `VERSION`, poznámky jsou sekce z CHANGELOG.md.
+
+### 2026-10-30 – Konverze nenechává extrahované titulky
+- Uživatel chtěl, aby konverze po sobě smazala extrahované `.ass`. Protože se od 0.2.0 vypaluje z dočasné kopie vybrané stopy, extrakce vedle videa by vznikala jen proto, aby se smazala. Místo mazání se tedy ve výchozím stavu vůbec nespouští: stejný výsledek, rychlejší a bez rizika smazání titulků, které tam uživatel měl předem (stažené, ručně upravené).
+- Původní chování zůstává přes `--keep-ass` / `-KeepAss`.
+
+### 2026-10-30 – Windows instalátor v NSIS, spouštěče .cmd
+- NSIS, protože `makensis` běží na macOS/Linuxu (brew/apt) a instalátor jde sestavit bez Windows; Inno Setup i WiX vyžadují Windows nebo Wine.
+- Per-user instalace bez UAC: nástroj nepotřebuje nic systémového.
+- Spouštěče `.cmd` s `-ExecutionPolicy Bypass` řeší dvě časté překážky: výchozí Restricted policy a Mark of the Web u souborů rozbalených ze staženého zipu (RemoteSigned je pak odmítne).
+- PATH se mění přes registr jako REG_EXPAND_SZ (`user-path.ps1`), protože `[Environment]::SetEnvironmentVariable` rozvine `%USERPROFILE%` a uloží REG_SZ.
+- Verzování zavedeno souborem `VERSION` (0.2.0), protože instalátor potřebuje číslo verze.
+
 ### 2026-10-30 – Výběr stop podle heuristiky, ne jen podle metadat
 - Metadata v reálných souborech jsou nespolehlivá: chybí příznak forced, jazyk je `und` nebo špatně, správná informace bývá jen v názvu stopy („CZ“, „Čeština“, „forc“).
 - Jazyk: název stopy (cs/sk) > jazykový tag > název (ostatní jazyky) > `und`. Název vyhrává, protože ho píše člověk; tag bývá výchozí hodnota z muxeru.

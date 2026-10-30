@@ -31,6 +31,8 @@ Povinné:
 - Windows PowerShell 5.1 (součást Windows 10/11) nebo PowerShell 7+
 - 64bitový FFmpeg s `ffmpeg.exe`, `ffprobe.exe`, `libx264`, `libx265`, `aac` a `ac3`; oba programy musí být dostupné v `PATH`
 - podpora ASS titulků: FFmpeg s `libass` (filtry `ass` a `subtitles`) pro vypalování titulků; sestavení Gyan.FFmpeg ji obsahuje
+
+Instalátor (nebo `ffmpeg-setup.cmd` v rozbaleném zipu) FFmpeg zkontroluje a pokud chybí nebo nevyhovuje, stáhne sestavení gyan.dev „essentials“ do složky programu. Ruční instalace níže je potřeba jen tehdy, když chcete systémový FFmpeg.
 - Arial (standardní součást Windows)
 
 Pro volitelnou NVIDIA akceleraci:
@@ -75,3 +77,16 @@ brew install bash ffmpeg-full
 Bez `libass` skript `convert-for-tv.sh` u profilů s vypalováním titulků (`standard`, `akcni`, `serialy`) skončí s chybou; profil `hd10` titulky nevypaluje a `libass` nepotřebuje.
 
 Profily v `HandBrake-profiles/` jsou volitelné a skripty je přímo nenačítají.
+
+## Sestavení balíčků pro Windows
+
+Jen pro vývojáře, kteří sestavují zip a instalátor (`build/build-windows.sh`). Běží na macOS i Linuxu:
+
+- Bash 4+, `zip`
+- NSIS 3 (`makensis`) pro instalátor; bez něj vznikne jen zip
+- volitelně PowerShell 7 (`pwsh`) pro kontrolu syntaxe `.ps1`
+
+```bash
+brew install makensis              # macOS (zip je součástí systému; pwsh: brew install --cask powershell)
+sudo apt install nsis zip          # Debian/Ubuntu
+```
