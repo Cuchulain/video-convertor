@@ -2,6 +2,11 @@
 
 Formát vychází z [Keep a Changelog](https://keepachangelog.com/cs/1.1.0/), verze podle souboru `VERSION`.
 
+## [0.2.1] – 2026-11-03
+
+### Opraveno
+- Spuštění přes symlink (např. `~/bin/convert-for-tv.sh`) končilo chybou `lib/tracks.sh: No such file or directory`; skripty i linuxové wrappery nyní dohledají svou skutečnou složku.
+
 ## [0.2.0] – 2026-10-30
 
 ### Přidáno

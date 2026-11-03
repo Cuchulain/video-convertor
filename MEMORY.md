@@ -66,6 +66,8 @@ Projektová paměť: rozhodnutí, jejich důvody a poučení, která nejsou zře
 
 ## Poučení (chyby, na které jsme narazili)
 
+- `SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"` vrací při spuštění přes symlink složku symlinku (`~/bin`), takže `source lib/tracks.sh` selhal. Řešeno dohledáním cíle symlinku (2026-11-03).
+
 - `$x = if (...) { @(...) } else { @(...) }` vrátí při prázdném poli `$null`; `$x.Count` pak pod StrictMode spadne. Chyba byla v prvním (neveřejném) sestavení 0.2.0, protože se testovala jen funkce, ne celý `convert-for-tv.ps1`.
 
 - Windows `.ps1` bez BOM: PS 5.1 je čte jako ANSI, rozbité české hlášky a regulární výrazy s diakritikou. Platilo i pro distribuovaný zip.

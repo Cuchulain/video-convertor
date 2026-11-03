@@ -211,6 +211,12 @@ Původní rozhraní zůstává beze změny:
 ./scripts/fix-audio-offsets.sh film.mp4
 ```
 
+Pro spouštění odkudkoli stačí symlink do složky v `PATH` (skripty si najdou svou skutečnou složku, platí i pro `scripts/linux/`):
+
+```bash
+ln -s "$PWD/scripts/convert-for-tv.sh" ~/bin/convert-for-tv.sh
+```
+
 ## Sestavení balíčků pro Windows
 
 Zip a instalátor sestaví na macOS i Linuxu skript `build/build-windows.sh` z aktuálních souborů v repozitáři. Verze se bere ze souboru `VERSION`, výstupy jsou v `dist/`:

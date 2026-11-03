@@ -27,7 +27,15 @@ elif locale -a 2>/dev/null | tr '[:upper:]' '[:lower:]' | grep -Eq '^en_us\.utf-
   export LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8
 fi
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Skutečná složka skriptu i při spuštění přes symlink (např. ~/bin/convert-for-tv.sh);
+# bez readlink -f, které starší macOS nemá.
+SCRIPT_SRC="${BASH_SOURCE[0]}"
+while [[ -L "$SCRIPT_SRC" ]]; do
+  SCRIPT_LINK_DIR="$(cd -P "$(dirname "$SCRIPT_SRC")" && pwd)"
+  SCRIPT_SRC="$(readlink "$SCRIPT_SRC")"
+  [[ "$SCRIPT_SRC" == /* ]] || SCRIPT_SRC="$SCRIPT_LINK_DIR/$SCRIPT_SRC"
+done
+SCRIPT_DIR="$(cd -P "$(dirname "$SCRIPT_SRC")" && pwd)"
 # shellcheck source=lib/tracks.sh
 source "$SCRIPT_DIR/lib/tracks.sh"
 

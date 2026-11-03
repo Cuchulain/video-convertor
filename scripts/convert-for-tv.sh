@@ -58,7 +58,15 @@ fi
 # Ve sporných případech se další možná správné stopy ponechají jako nevýchozí
 # a skript poradí, jak volbu určit ručně (--audio, --audio-lang, --sub).
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Skutečná složka skriptu i při spuštění přes symlink (např. ~/bin/convert-for-tv.sh);
+# bez readlink -f, které starší macOS nemá.
+SCRIPT_SRC="${BASH_SOURCE[0]}"
+while [[ -L "$SCRIPT_SRC" ]]; do
+  SCRIPT_LINK_DIR="$(cd -P "$(dirname "$SCRIPT_SRC")" && pwd)"
+  SCRIPT_SRC="$(readlink "$SCRIPT_SRC")"
+  [[ "$SCRIPT_SRC" == /* ]] || SCRIPT_SRC="$SCRIPT_LINK_DIR/$SCRIPT_SRC"
+done
+SCRIPT_DIR="$(cd -P "$(dirname "$SCRIPT_SRC")" && pwd)"
 
 PROFILE="standard"
 DRY_RUN="0"

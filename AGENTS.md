@@ -37,6 +37,7 @@ Sada skriptů nad FFmpeg, která převádí videa (MKV, MP4, AVI…) do MP4 pro 
 
 ## Bash: na co si dát pozor
 
+- Skripty se spouštějí i přes symlink (`~/bin/convert-for-tv.sh`): `SCRIPT_DIR` se určuje smyčkou přes `readlink` (bez `readlink -f`, které starší macOS nemá). Nový spouštěný skript, který sahá na sousední soubory, musí použít stejný blok.
 - Vyžaduje Bash 4+ (asociativní pole). `convert-for-tv.sh` a `extract-ass.sh` se pod Bashem 3.2 samy znovu spustí přes Homebrew Bash.
 - Na macOS se do `PATH` přidává `/opt/homebrew/bin` a před něj keg-only `ffmpeg-full` (obsahuje libass).
 - `set -o pipefail` + `cmd | grep -q`: `grep -q` skončí dřív, `cmd` dostane SIGPIPE a pipeline selže. Výstup nejdřív ulož do proměnné.
