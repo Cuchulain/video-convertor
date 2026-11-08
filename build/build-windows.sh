@@ -96,6 +96,7 @@ mkdir -p "$PKG/scripts/windows" "$PKG/tools" "$DIST"
 
 cp "$ROOT"/packaging/windows/*.cmd "$PKG/"
 cp "$ROOT"/scripts/windows/*.ps1 "$PKG/scripts/windows/"
+cp "$ROOT"/scripts/devices.conf "$PKG/scripts/"
 cp "$ROOT"/packaging/windows/user-path.ps1 "$ROOT"/packaging/windows/ffmpeg-setup.ps1 "$PKG/tools/"
 cp "$ROOT"/README.md "$ROOT"/REQUIREMENTS.md "$ROOT"/CHANGELOG.md "$ROOT"/LICENSE "$ROOT"/VERSION "$PKG/"
 

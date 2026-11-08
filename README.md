@@ -14,12 +14,41 @@ Podrobný seznam programů a instalační příkazy jsou v [REQUIREMENTS.md](REQ
 
 | Profil | Video | Zvuk | Titulky |
 |---|---|---|---|
-| `standard` | H.264, max. 2 000 kb/s | AC-3, max. 384 kb/s | vypálené do obrazu |
-| `akcni` | H.264, max. 2 500 kb/s | AC-3, max. 384 kb/s | vypálené do obrazu |
-| `serialy` | H.264, max. 1 600 kb/s | AC-3, max. 384 kb/s | vypálené do obrazu |
+| `standard` | H.264, max. 2 000 kb/s | podle zařízení (výchozí AC-3, max. 384 kb/s) | vypálené do obrazu |
+| `akcni` | H.264, max. 2 500 kb/s | podle zařízení | vypálené do obrazu |
+| `serialy` | H.264, max. 1 600 kb/s | podle zařízení | vypálené do obrazu |
 | `hd10` | HEVC Main 10 | AAC, max. 160 kb/s | vložené jako `mov_text` |
 
-Skript kompatibilní stopu zkopíruje bez ztráty kvality. Překódování spustí jen tehdy, když je nutné kvůli kodeku, rozlišení, datovému toku, ořezu nebo vypálení titulků. Výstup vzniká standardně v podadresáři `tv` vedle vstupu.
+Skript kompatibilní stopu zkopíruje bez ztráty kvality. Kopírované video se stálou snímkovou frekvencí, ale rozkolísanými časovými značkami (typicky z MKV, kde jsou časy v milisekundách), dostane srovnané časy bez překódování; jinak by ho některé televize (např. LG webOS 3.0) v MP4 odmítly jako nerozpoznaný soubor. Překódování spustí jen tehdy, když je nutné kvůli kodeku, rozlišení, datovému toku, ořezu nebo vypálení titulků. Výstup vzniká standardně v podadresáři `tv-<zařízení>` vedle vstupu (např. `tv-lg`).
+
+## Cílová zařízení
+
+Televizory se liší v tom, co v MP4 přehrají. Profil zařízení určuje kodek zvuku, které zvukové stopy lze zkopírovat, nejvyšší level H.264 pro kopii videa a nejvyšší rozlišení. Kvalitu (datový tok) dál určuje `--profile`.
+
+| Zařízení | Zvuk | Kopie videa | Poznámka |
+|---|---|---|---|
+| `hyundai` (výchozí) | AC-3, max. 384 kb/s; kopie AC-3, MP3 | H.264 bez omezení levelu | původní nastavení |
+| `lg` | AC-3, max. 384 kb/s; kopie AC-3, AAC, MP3 | H.264 do levelu 4.2 | LG 49LH6047 (webOS 3.0), limity podle specifikace LG |
+
+```bash
+./scripts/convert-for-tv.sh --list-devices          # profily a výchozí zařízení
+./scripts/convert-for-tv.sh --set-device lg         # uložit výchozí zařízení
+./scripts/convert-for-tv.sh --device hyundai film.mkv   # jednorázově jiné zařízení
+```
+
+Windows: `-ListDevices`, `-SetDevice lg`, `-Device hyundai`. Přetažení videa na „Převést pro TV“ použije výchozí zařízení.
+
+Konfigurace je v `~/.config/video-convertor/` (macOS/Linux, případně `$XDG_CONFIG_HOME`), ve Windows v `%APPDATA%\video-convertor\`:
+
+- `config`: výchozí zařízení (`device=lg`), zapisuje ho `--set-device`,
+- `devices.conf`: vlastní profily ve stejném formátu jako vestavěné [`scripts/devices.conf`](scripts/devices.conf), kde je popsán význam klíčů. Profil se stejným názvem jako vestavěný přepíše jen uvedené klíče, chybějící klíče mají hodnoty profilu `hyundai`.
+
+```ini
+[samsung]
+description = Samsung v obýváku
+audio_codec = aac
+audio_copy = aac ac3 mp3
+```
 
 ## Linux amd64
 
@@ -128,7 +157,7 @@ Více vstupů lze předat za `-Path` oddělených čárkou. Kromě souborů jsou
 
 - U AVI se dopočítají chybějící časové značky (`-fflags +genpts`), aby šlo H.264 video zkopírovat do MP4 bez překódování.
 - Obal filmu uložený jako obrázková stopa (MP4/MOV/M4V) se ignoruje a použije se skutečné video.
-- Pokud ve stejné složce leží např. `film.avi` i `film.mkv`, oba by vedly na `tv/film.mp4`; zpracuje se jen první a druhý se s varováním přeskočí.
+- Pokud ve stejné složce leží např. `film.avi` i `film.mkv`, oba by vedly na `tv-<zařízení>/film.mp4`; zpracuje se jen první a druhý se s varováním přeskočí.
 
 ## Výběr stop a titulků
 

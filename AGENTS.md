@@ -4,7 +4,7 @@ Pokyny pro AI agenty (Claude Code, Codex, Cursor…) i lidi, kteří v projektu 
 
 ## O projektu
 
-Sada skriptů nad FFmpeg, která převádí videa (MKV, MP4, AVI…) do MP4 pro televizor: vybere zvuk a titulky (čeština → slovenština → angličtina), titulky vypálí nebo vloží, zmenší obraz na max. 1280 × 720 a opraví audio offset. Náhrada za dříve používaný HandBrake (profily v `HandBrake-profiles/` jsou jen historická reference, skripty je nenačítají).
+Sada skriptů nad FFmpeg, která převádí videa (MKV, MP4, AVI…) do MP4 pro televizor: vybere zvuk a titulky (čeština → slovenština → angličtina), titulky vypálí nebo vloží, zmenší obraz na max. 1280 × 720 a opraví audio offset. Co cílová TV umí (kodek zvuku, level H.264, rozlišení), určuje profil zařízení (`--device`), výstup jde do `tv-<zařízení>`. Náhrada za dříve používaný HandBrake (profily v `HandBrake-profiles/` jsou jen historická reference, skripty je nenačítají).
 
 ## Struktura
 
@@ -13,6 +13,7 @@ Sada skriptů nad FFmpeg, která převádí videa (MKV, MP4, AVI…) do MP4 pro 
 | `scripts/convert-for-tv.sh` | hlavní skript (macOS/Linux): výběr stop, rozhodnutí kopie/překódování, konverze |
 | `scripts/extract-ass.sh` | extrakce CZ/SK textových titulků ze stop zdroje do `*.label.cs.ass` vedle videa |
 | `scripts/fix-audio-offsets.sh` | dorovnání kladného audio offsetu ve výsledném MP4 |
+| `scripts/devices.conf` | **sdílené profily cílových zařízení** (kodek zvuku, kopie, level H.264, rozlišení); čte ho bash i `VideoTools.ps1` |
 | `scripts/lib/tracks.sh` | **sdílená heuristika**: načtení stop (`probe_tracks`), jazyk, forced/full, titulky ze souborů vedle videa, seznam podporovaných přípon |
 | `scripts/linux/*.sh` | tenké wrappery, které spustí skripty o úroveň výš s `VIDEO_BACKEND=software` |
 | `scripts/windows/*.ps1` | samostatný port pro Windows PowerShell 5.1 / PowerShell 7 |
@@ -33,7 +34,8 @@ Sada skriptů nad FFmpeg, která převádí videa (MKV, MP4, AVI…) do MP4 pro 
 - **Styl kódu.** Drž se okolního kódu: bash s `set -euo pipefail`, funkce vracejí výsledek přes globální proměnné (`SEL_*`, `TRK_*`, `_TRK_R`), komentář nad každou funkcí s popisem parametrů (`$1=...`).
 - **Verze.** Při vydání zvyš `VERSION`, přejmenuj sekci v CHANGELOG.md (`## [X.Y.Z] – datum`, workflow z ní bere poznámky), commitni a pushni tag `vX.Y.Z`; release vytvoří GitHub Actions. Výstupy v `dist/` se necommitují.
 - **Dokumentace.** Změnu chování nebo parametrů zapiš do README.md (a REQUIREMENTS.md u závislostí), přidej záznam do CHANGELOG.md, nová poučení do MEMORY.md a hotové/nové body do ROADMAP.md.
-- **Nemazat uživatelská data.** Skripty nesmí přepsat vstup; výstupy jdou do `tv/` nebo `--outdir`.
+- **Nemazat uživatelská data.** Skripty nesmí přepsat vstup; výstupy jdou do `tv-<zařízení>/` nebo `--outdir`.
+- **Profily zařízení** jsou jen v `scripts/devices.conf` (data, ne kód). Nový klíč přidej do obou parserů (`DEV_KEYS` + `dev_get` v bash, `$DeviceKeys` + `$DeviceDefaults` ve `VideoTools.ps1`) a popiš ho v hlavičce souboru.
 
 ## Bash: na co si dát pozor
 
@@ -71,6 +73,7 @@ Sada skriptů nad FFmpeg, která převádí videa (MKV, MP4, AVI…) do MP4 pro 
 - MP4 muxer vždy označí první titulkovou stopu jako zapnutou (default), i když dostane `-disposition 0`. Proto se u vypalovacích profilů nevkládají žádné další titulkové stopy (zobrazily by se přes vypálené).
 - Vypalování textových titulků potřebuje filtr `ass` (libass). Základní Homebrew `ffmpeg` ho nemá → `ffmpeg-full`.
 - AVI: pro kopii videa do MP4 je nutné `-fflags +genpts`.
+- Kopie videa z MKV (časy v ms) dává v MP4 rozkolísané délky snímků a některé TV soubor odmítnou. `decide_timestamps` / `Get-TimestampFix` je srovná filtrem `setts` na mřížku podle `r_frame_rate`; rozhoduje se podle PTS (MKV nemá DTS).
 - Titulky ze souborů: `-sub_charenc CP1250` pro ne-UTF-8, `-subfps <fps videa>` pro MicroDVD.
 - `-count_packets` čte celý soubor (u velkých filmů to trvá); je potřeba pro heuristiku forced/full.
 

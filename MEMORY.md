@@ -4,6 +4,20 @@ Projektová paměť: rozhodnutí, jejich důvody a poučení, která nejsou zře
 
 ## Rozhodnutí
 
+### 2026-11-08 – Srovnání rozkolísaných časových značek při kopii videa
+- LG 49LH6047 hlásila u filmu „Tento soubor nelze rozpoznat“, 2min ukázky stejného souboru (i s AC-3) ale hrály, obě poloviny filmu ne. Rozdíl proti funkčnímu filmu: video zkopírované z MKV (časy v ms) mělo v MP4 délky snímků střídavě 41/42 ms (časová základna 1/90000, 3780/3690), tabulka `stts` nejde zhustit a index dlouhého filmu TV odmítne. Překódované video ze skriptu má stálé délky, proto hrálo.
+- Ověřeno na TV: celý film přebalený s `setts` na mřížku 1001/24000 hraje (B-snímky nevadí, AC-3 v MP4 také ne); film převedený opraveným skriptem také.
+- Oprava se dělá pro všechna zařízení: nic nerozbije a Hyundai byl jen tolerantnější.
+- Srovnává se jen tehdy, když každý PTS leží do 1/4 snímku od mřížky podle `r_frame_rate` a po zaokrouhlení nejsou dva snímky na stejném čase. Jinak jde o skutečně proměnnou frekvenci a srovnání by rozhodilo pořadí snímků nebo synchronizaci.
+- Kontroluje se PTS, ne DTS: MKV DTS neukládá (FFmpeg je dopočítá, první pakety mají `N/A`).
+
+### 2026-11-07 – Profily cílových zařízení
+- Původní domněnka, že LG nepřehraje AC-3 v MP4 (podle přehledu signageOS pro LG webOS 3), se nepotvrdila: oficiální specifikace LG webOS TV 3.0 uvádí v MP4 Dolby Digital, DD+, AAC i MP3 a ukázka s AC-3 na TV hrála. Skutečná příčina byly časové značky (viz výše).
+- Profil zařízení (`--device`) je samostatný od profilu kvality (`--profile`): zařízení říká, co TV umí, profil kvality datový tok. Kombinovat je do jednoho seznamu by znamenalo profily násobit.
+- Definice jsou v datovém souboru `scripts/devices.conf`, který čte bash i PowerShell, takže hodnoty nejde rozladit mezi platformami. Uživatel si může přidat vlastní v konfigurační složce bez úpravy instalace.
+- Výchozí zařízení je `hyundai` (dosavadní chování), výstupní složka nese název zařízení (`tv-lg`), aby se výstupy pro různé TV nepřepisovaly.
+- U `lg` se H.264 kopíruje jen do levelu 4.2 (limit Full HD modelů podle specifikace LG; neznámý level = překódovat).
+
 ### 2026-10-30 – Jen čeština, veřejný repozitář s licencí MIT
 - Vícejazyčnost (anglický instalátor a README) byla zvažována a zamítnuta: nástroj je specifický pro české a slovenské prostředí.
 - Repozitář je veřejný (releasy z privátního repa by si nikdo jiný nestáhl). Licence MIT, autor commitů `dev@jancejka.cz` (původní pracovní e-mail byl z historie přepsán před zveřejněním).
@@ -65,6 +79,8 @@ Projektová paměť: rozhodnutí, jejich důvody a poučení, která nejsou zře
 - Základní Homebrew formule `ffmpeg` neobsahuje libass → nelze vypalovat ASS. `ffmpeg-full` ji má, ale je keg-only, proto ho skripty hledají přímo v `/opt/homebrew/opt/ffmpeg-full/bin` (a `/usr/local/opt/...`).
 
 ## Poučení (chyby, na které jsme narazili)
+
+- macOS `awk` formátuje i čte čísla podle locale: pod `cs_CZ` vypsal `0,476780` a další porovnání to četlo jako 0. `fix-audio-offsets.sh` proto nastavuje `LC_NUMERIC=C` (`convert-for-tv.sh` nastavuje `LC_ALL`, takže se chyba projevila jen při samostatném spuštění) (2026-11-07).
 
 - `SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"` vrací při spuštění přes symlink složku symlinku (`~/bin`), takže `source lib/tracks.sh` selhal. Řešeno dohledáním cíle symlinku (2026-11-03).
 

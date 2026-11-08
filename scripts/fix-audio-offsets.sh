@@ -27,6 +27,10 @@ set -euo pipefail
 # - záporný audio offset zatím jen přeskočí s varováním
 # - zaměřeno hlavně na MP4/MOV s edit listem
 
+# awk formátuje i čte čísla podle locale; s českým by vypsal "0,476780"
+# a další porovnání by ho přečetlo jako 0 (offset by se neopravil).
+export LC_NUMERIC=C
+
 THRESHOLD="0.050"
 DRY_RUN="0"
 
@@ -112,16 +116,19 @@ get_audio_bitrate() {
     "$file" | head -n1
 }
 
-# Zachová audio codec pokud je AC-3, jinak AC-3 fallback
+# Zachová audio codec, pokud je AC-3 nebo AAC (podle profilu zařízení, viz
+# devices.conf), jinak AC-3 fallback
 # Výstup: "<codec> <bitrate>"
 choose_audio_output() {
   local codec="$1"
   local bitrate="${2:-}"
 
   case "$codec" in
-    ac3)
-      if [[ -n "$bitrate" && "$bitrate" != "N/A" ]]; then
-        printf 'ac3 %s' "$bitrate"
+    ac3|aac)
+      if [[ "$bitrate" =~ ^[0-9]+$ ]]; then
+        printf '%s %s' "$codec" "$bitrate"
+      elif [[ "$codec" == "aac" ]]; then
+        printf 'aac 192000'
       else
         printf 'ac3 384000'
       fi

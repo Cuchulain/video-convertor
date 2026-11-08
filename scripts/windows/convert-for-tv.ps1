@@ -5,6 +5,11 @@
 param(
     [ValidateSet('standard', 'akcni', 'serialy', 'hd10')]
     [string] $Profile = 'standard',
+    # Cílové zařízení (devices.conf); výchozí z konfigurace, jinak hyundai.
+    [string] $Device,
+    # Vypsat profily zařízení / uložit výchozí zařízení do konfigurace a skončit.
+    [switch] $ListDevices,
+    [string] $SetDevice,
     [ValidateRange(0, 100)]
     [int] $Cq = 60,
     [ValidateSet('Auto', 'Nvidia', 'Cpu')]
@@ -23,11 +28,24 @@ param(
     [string] $Audio,
     [string] $AudioLang,
     [string] $Sub,
-    [Parameter(Position = 0, Mandatory = $true, ValueFromRemainingArguments = $true)]
+    [Parameter(Position = 0, ValueFromRemainingArguments = $true)]
     [string[]] $Path
 )
 
 . "$PSScriptRoot\VideoTools.ps1"
+
+# --- Profil cílového zařízení ------------------------------------------------
+$devices = Get-Devices
+if ($ListDevices) { Show-Devices $devices; exit 0 }
+if ($SetDevice) {
+    $null = Get-Device $devices $SetDevice
+    Set-ConfigValue 'device' $SetDevice
+    Write-Host "Výchozí zařízení: $SetDevice (uloženo do $(Join-Path $script:ConfigDirectory 'config'))"
+    exit 0
+}
+$targetDevice = Get-Device $devices $(if ($Device) { $Device } else { Get-DefaultDevice })
+if (-not $Path) { throw 'Chybí vstupní soubory nebo složky (např. convert-for-tv.cmd "D:\Video\film.mkv").' }
+
 Assert-VideoTools
 
 # --- Výběr stop -------------------------------------------------------------
@@ -189,7 +207,8 @@ function Show-Tracks($Tracks, $AudioChoice, $SubtitleChoice, $Duration) {
     Write-Host '  (* vybráno, + ponecháno jako další nevýchozí stopa, ? další možná správná stopa)'
 }
 
-# Rozhodne kopii/parametry audia. Vrací @{ Copy; Kbps; SampleRate }.
+# Rozhodne kopii/parametry audia podle profilu zařízení.
+# Vrací @{ Copy; Codec; Kbps; SampleRate }.
 function Get-AudioPlan($Stream) {
     $bitrate = Get-StreamBitrate $Stream
     $channels = 0; $sampleRate = 0
@@ -198,12 +217,13 @@ function Get-AudioPlan($Stream) {
     $property = $Stream.PSObject.Properties['sample_rate']
     if ($property -and $property.Value) { $sampleRate = [int]$property.Value }
 
-    $copy = $Stream.codec_name -in @('ac3', 'mp3') -and $channels -gt 0 -and $channels -le 2 -and
+    $copy = $targetDevice.AudioCopy -ccontains "$($Stream.codec_name)" -and $channels -gt 0 -and $channels -le 2 -and
         $sampleRate -gt 0 -and $sampleRate -le 48000 -and $bitrate -and $bitrate -le 384000
-    $target = if ($Profile -eq 'hd10') { 160 } else { 384 }
+    $codec = if ($Profile -eq 'hd10') { 'aac' } else { $targetDevice.AudioCodec }
+    $target = if ($Profile -eq 'hd10') { 160 } else { $targetDevice.AudioKbps }
     if ($bitrate -and [Math]::Floor($bitrate / 1000) -lt $target) { $target = [Math]::Floor($bitrate / 1000) }
     $rate = if ($sampleRate -gt 0 -and $sampleRate -lt 48000) { $sampleRate } else { 48000 }
-    return @{ Copy = $copy; Kbps = $target; SampleRate = $rate }
+    return @{ Copy = $copy; Codec = $codec; Kbps = $target; SampleRate = $rate }
 }
 
 # Jazyk do metadat výstupní stopy, pokud byl zjištěn z názvu a tag zdroje je jiný.
@@ -223,6 +243,40 @@ function Get-Crop([string] $File, $Probe) {
     $matches = [regex]::Matches(($output -join "`n"), 'crop=\d+:\d+:\d+:\d+')
     if ($matches.Count) { return $matches[$matches.Count - 1].Value }
     return $null
+}
+
+# Při kopii videa zjistí, zda má stálou snímkovou frekvenci, jen s rozkolísanými
+# časovými značkami (typicky H.264 z MKV, kde jsou časy v ms: snímky 23,976 fps
+# pak mají střídavě 41 a 42 ms). V MP4 takové video nepřehraje např. LG webOS
+# 3.0 (tabulka délek snímků nejde zhustit a index celého filmu je pro TV moc
+# velký), krátké úseky ano. Časy se pak srovnají na mřížku snímků filtrem setts
+# bez překódování. Skutečně proměnná frekvence (každý čas musí ležet do 1/4
+# snímku od mřížky a dva snímky nesmí padnout na stejný čas) se nechá být.
+# Vrací @{ Scale (časová základna 1/N); Step (délka snímku v ní) }, nebo $null.
+function Get-TimestampFix([string] $File, $VideoStream) {
+    if ("$($VideoStream.r_frame_rate)" -notmatch '^(\d+)/(\d+)$') { return $null }
+    $rateNum = [long]$Matches[1]; $rateDen = [long]$Matches[2]
+    if ("$($VideoStream.time_base)" -notmatch '^(\d+)/(\d+)$') { return $null }
+    $tbNum = [double]$Matches[1]; $tbDen = [double]$Matches[2]
+    if ($rateNum -le 0 -or $rateDen -le 0 -or $tbNum -le 0 -or $tbDen -le 0) { return $null }
+
+    # PTS, protože MKV DTS neukládá
+    $frame = $rateDen / [double]$rateNum
+    $seen = New-Object 'System.Collections.Generic.HashSet[long]'
+    $jitter = $false
+    foreach ($line in @(& ffprobe -v error -select_streams V:0 -show_entries packet=pts -of csv=p=0 $File 2>$null)) {
+        if ("$line" -notmatch '^-?\d+') { continue }
+        $time = [double]$Matches[0] * $tbNum / $tbDen
+        $grid = [long][Math]::Round($time / $frame, [MidpointRounding]::AwayFromZero)
+        $deviation = [Math]::Abs($time - $grid * $frame)
+        if ($deviation -gt $frame / 4 -or -not $seen.Add($grid)) { return $null }
+        if ($deviation -gt 0.0001) { $jitter = $true }
+    }
+    if (-not $jitter) { return $null }
+
+    # časová základna aspoň 1/10000 s (24000/1001 -> 1/24000, 25 -> 1/10000)
+    $factor = [long][Math]::Ceiling(10000 / [double]$rateNum)
+    return @{ Scale = $rateNum * $factor; Step = $rateDen * $factor }
 }
 
 function Get-TargetVideoKbps([string] $Name) {
@@ -369,17 +423,17 @@ foreach ($file in (Get-MediaFiles $Path)) {
     elseif ($alternatives) { Write-Host "Další možné titulky (vybrat přes -Sub N nebo -Sub soubor): $alternatives" }
 
     $directory = [IO.Path]::GetDirectoryName($file)
-    $targetDirectory = if ($OutDir) { [IO.Path]::GetFullPath($OutDir) } else { Join-Path $directory 'tv' }
+    $targetDirectory = if ($OutDir) { [IO.Path]::GetFullPath($OutDir) } else { Join-Path $directory "tv-$($targetDevice.Name)" }
     $output = Join-Path $targetDirectory "$([IO.Path]::GetFileNameWithoutExtension($file)).mp4"
     if ([IO.Path]::GetFullPath($output) -eq [IO.Path]::GetFullPath($file)) { throw "Výstup by přepsal vstup: $output" }
-    # např. film.avi a film.mkv ve stejné složce -> stejný tv\film.mp4
+    # např. film.avi a film.mkv ve stejné složce -> stejný tv-<zařízení>\film.mp4
     $outputKey = [IO.Path]::GetFullPath($output).ToLowerInvariant()
     if ($outputsDone.ContainsKey($outputKey)) {
         Write-Warning "Výstup $output už v tomto běhu vznikl z $($outputsDone[$outputKey]), přeskakuji: $file"
         continue
     }
     $outputsDone[$outputKey] = $file
-    Write-Host "Profil: $Profile -> $output"
+    Write-Host "Profil: $Profile, zařízení: $($targetDevice.Name) -> $output"
     if ($DryRun) { Write-Host "Hardware: $videoBackend`n(dry-run: extrakce, cropdetect a konverze přeskočeny)"; continue }
 
     New-Item -ItemType Directory -Path $targetDirectory -Force | Out-Null
@@ -422,11 +476,16 @@ foreach ($file in (Get-MediaFiles $Path)) {
         if ($crop -and $crop -match '^crop=(\d+):(\d+):(\d+):(\d+)$') {
             $realCrop = ([int]$Matches[1] -ne [int]$video.width -or [int]$Matches[2] -ne [int]$video.height -or [int]$Matches[3] -ne 0 -or [int]$Matches[4] -ne 0)
         }
-        $videoCopy = -not $burn -and -not $realCrop -and [int]$video.width -le 1280 -and [int]$video.height -le 720
+        $videoCopy = -not $burn -and -not $realCrop -and [int]$video.width -le $targetDevice.MaxWidth -and [int]$video.height -le $targetDevice.MaxHeight
         if ($Profile -eq 'hd10') {
             $videoCopy = $videoCopy -and $video.codec_name -eq 'hevc' -and $tenBit
         } else {
             $videoCopy = $videoCopy -and $video.codec_name -eq 'h264' -and $videoBitrate -and $videoBitrate -le ($targetKbps * 1000)
+            # level nad možnosti zařízení (nebo neznámý) -> překódovat
+            if ($videoCopy -and $null -ne $targetDevice.H264MaxLevel) {
+                $levelProperty = $video.PSObject.Properties['level']
+                $videoCopy = $levelProperty -and "$($levelProperty.Value)" -match '^\d+$' -and [int]$levelProperty.Value -le $targetDevice.H264MaxLevel
+            }
         }
 
         $args = @('-hide_banner', '-y')
@@ -459,7 +518,7 @@ foreach ($file in (Get-MediaFiles $Path)) {
         $filters = @()
         if (-not $videoCopy) {
             if ($crop) { $filters += $crop }
-            $filters += "scale='min(1280,iw)':'min(720,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2"
+            $filters += "scale='min($($targetDevice.MaxWidth),iw)':'min($($targetDevice.MaxHeight),ih)':force_original_aspect_ratio=decrease:force_divisible_by=2"
             if ($safeSubtitle) {
                 $escaped = $safeSubtitle.Replace('\', '/').Replace(':', '\:').Replace("'", "\'")
                 $filters += "ass=filename='$escaped'"
@@ -481,6 +540,13 @@ foreach ($file in (Get-MediaFiles $Path)) {
             $args += @('-c:v', 'copy')
             if ($Profile -eq 'hd10') { $args += @('-tag:v', 'hvc1') }
             Write-Host 'Video: kopie'
+            $timestampFix = Get-TimestampFix $file $video
+            if ($timestampFix) {
+                $step = $timestampFix.Step
+                $args += @('-bsf:v', "setts=time_base=1/$($timestampFix.Scale):prescale=1:pts=round(PTS/$step)*${step}:dts=round(DTS/$step)*${step}:duration=$step",
+                    '-video_track_timescale', "$($timestampFix.Scale)")
+                Write-Host "Video: srovnat rozkolísané časové značky (časová základna 1/$($timestampFix.Scale))"
+            }
         } else {
             if ($burn -ne 'image') { $args += @('-vf', ($filters -join ',')) }
             if ($Profile -eq 'hd10') {
@@ -492,12 +558,14 @@ foreach ($file in (Get-MediaFiles $Path)) {
                 }
                 if ($videoBitrate) { $kbps = [Math]::Floor($videoBitrate / 1000); $args += @('-maxrate', "${kbps}k", '-bufsize', "$($kbps * 2)k") }
             } else {
+                # Level H.264: 3.1 stačí do 1280x720, větší obraz potřebuje 4.1.
+                $level = if ($targetDevice.MaxWidth -gt 1280 -or $targetDevice.MaxHeight -gt 720) { '4.1' } else { '3.1' }
                 $effective = $targetKbps
                 if ($videoBitrate -and [Math]::Floor($videoBitrate / 1000) -lt $effective) { $effective = [Math]::Floor($videoBitrate / 1000) }
                 if ($videoBackend -eq 'Nvidia') {
-                    $args += @('-c:v', 'h264_nvenc', '-preset', 'p5', '-tune', 'hq', '-rc', 'vbr', '-b:v', "${effective}k", '-maxrate', "${effective}k", '-bufsize', "$($effective * 2)k", '-profile:v', 'high', '-level', '3.1')
+                    $args += @('-c:v', 'h264_nvenc', '-preset', 'p5', '-tune', 'hq', '-rc', 'vbr', '-b:v', "${effective}k", '-maxrate', "${effective}k", '-bufsize', "$($effective * 2)k", '-profile:v', 'high', '-level', $level)
                 } else {
-                    $args += @('-c:v', 'libx264', '-preset', 'medium', '-b:v', "${effective}k", '-profile:v', 'high', '-level', '31')
+                    $args += @('-c:v', 'libx264', '-preset', 'medium', '-b:v', "${effective}k", '-profile:v', 'high', '-level', $level.Replace('.', ''))
                 }
             }
             Write-Host "Video: překódovat ($videoBackend)"
@@ -510,9 +578,8 @@ foreach ($file in (Get-MediaFiles $Path)) {
                 $args += @("-c:a:$k", 'copy')
                 Write-Host "Audio a:$($track.Relative): kopie"
             } else {
-                $codec = if ($Profile -eq 'hd10') { 'aac' } else { 'ac3' }
-                $args += @("-c:a:$k", $codec, "-b:a:$k", "$($plan.Kbps)k", "-ac:a:$k", '2', "-ar:a:$k", "$($plan.SampleRate)")
-                Write-Host "Audio a:$($track.Relative): překódovat -> $($plan.Kbps)k @ $($plan.SampleRate) Hz"
+                $args += @("-c:a:$k", $plan.Codec, "-b:a:$k", "$($plan.Kbps)k", "-ac:a:$k", '2', "-ar:a:$k", "$($plan.SampleRate)")
+                Write-Host "Audio a:$($track.Relative): překódovat -> $($plan.Codec) $($plan.Kbps)k @ $($plan.SampleRate) Hz"
             }
             $disposition = if ($k -eq 0) { 'default' } else { '0' }
             $args += @("-disposition:a:$k", $disposition)

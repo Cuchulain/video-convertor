@@ -53,8 +53,10 @@ foreach ($file in (Get-MediaFiles $Path)) {
         for ($i = 0; $i -lt $audio.Count; $i++) {
             $item = $fix | Where-Object Index -eq $i | Select-Object -First 1
             if ($item) {
-                $rate = if ($item.Codec -eq 'ac3' -and $item.Bitrate) { $item.Bitrate } else { 384000 }
-                $args += @("-filter:a:$i", "adelay=$($item.Delay):all=1,asetpts=PTS-STARTPTS", "-c:a:$i", 'ac3', "-b:a:$i", "$rate")
+                # Zachová AC-3 nebo AAC (podle profilu zařízení, viz devices.conf), jinak AC-3.
+                $codec = if ($item.Codec -in @('ac3', 'aac')) { $item.Codec } else { 'ac3' }
+                $rate = if ($item.Codec -eq $codec -and $item.Bitrate) { $item.Bitrate } elseif ($codec -eq 'aac') { 192000 } else { 384000 }
+                $args += @("-filter:a:$i", "adelay=$($item.Delay):all=1,asetpts=PTS-STARTPTS", "-c:a:$i", $codec, "-b:a:$i", "$rate")
             } else { $args += @("-c:a:$i", 'copy') }
         }
         $args += @('-avoid_negative_ts', 'make_zero', '-movflags', '+faststart', $temporary)

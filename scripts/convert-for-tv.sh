@@ -57,6 +57,8 @@ fi
 #   - hd10 -> nevypaluje, přidá vybranou stopu do MP4 (mov_text, default)
 # Ve sporných případech se další možná správné stopy ponechají jako nevýchozí
 # a skript poradí, jak volbu určit ručně (--audio, --audio-lang, --sub).
+# Profil cílového zařízení (--device, devices.conf) určí kodek zvuku, co lze
+# kopírovat, nejvyšší rozlišení a výstupní složku tv-<zařízení>.
 
 # Skutečná složka skriptu i při spuštění přes symlink (např. ~/bin/convert-for-tv.sh);
 # bez readlink -f, které starší macOS nemá.
@@ -78,6 +80,12 @@ CQ="60"   # constant quality pro hd10 (VideoToolbox -q:v, 0-100, vyšší = lep�
 AUDIO_OPT=""       # --audio N (relativní index a:N)
 AUDIO_LANG_OPT=""  # --audio-lang -> czech|slovak|foreign
 SUB_OPT=""         # --sub N | none | soubor
+DEVICE=""          # --device; prázdné = výchozí z konfigurace, jinak hyundai
+LIST_DEVICES="0"   # --list-devices
+SET_DEVICE=""      # --set-device
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/video-convertor"
+declare -A DEV_CONF=()   # "zařízení.klíč" -> hodnota z devices.conf
+DEV_NAMES=()             # zařízení v pořadí načtení
 declare -A OUTPUTS_DONE=()   # výstup -> vstup, kvůli kolizím názvů v jednom běhu
 
 # shellcheck source=lib/tracks.sh
@@ -98,9 +106,13 @@ Použití:
 
 Přepínače:
   --profile NAME     standard (výchozí) | akcni | serialy | hd10
+  --device NAME      cílové zařízení (viz --list-devices), výchozí z konfigurace
+  --list-devices     vypsat profily zařízení a výchozí zařízení
+  --set-device NAME  uložit výchozí zařízení do konfigurace a skončit
   --cq N             constant quality pro hd10 (0-100, vyšší = lepší, výchozí 60)
   --threshold SEC    prah pro fix-audio-offsets.sh (výchozí 0.050)
-  --outdir DIR       kam ukládat výstupy (výchozí: podadresář "tv" vedle vstupu)
+  --outdir DIR       kam ukládat výstupy (výchozí: podadresář "tv-<zařízení>"
+                     vedle vstupu)
   --keep-ass         ponechat vedle videa CZ/SK titulky vytažené do .ass
                      (výchozí: nic se nevytváří, vypaluje se z dočasné kopie)
   --no-extract       zastaralé, odpovídá výchozímu chování
@@ -119,6 +131,151 @@ Ruční volba stop (pro sporné případy; čísla viz výpis "Stopy ve zdroji")
 Video convertor pro TV – Jan Čejka, https://dev.jancejka.cz
 https://github.com/Cuchulain/video-convertor (licence MIT)
 EOF
+}
+
+# --- Profily zařízení a konfigurace -----------------------------------------
+#
+# Vestavěné profily jsou v devices.conf vedle skriptu, vlastní v $CONFIG_DIR/
+# devices.conf (stejný název profilu přepíše jen uvedené klíče). Výchozí
+# zařízení je v $CONFIG_DIR/config (device=nazev). Stejný formát čte VideoTools.ps1.
+
+DEV_KEYS="description audio_codec audio_kbps audio_copy h264_max_level max_width max_height"
+
+# Ořízne mezery na začátku a konci. $1=text, výsledek v _TRIM.
+trim() {
+  _TRIM="${1#"${1%%[![:space:]]*}"}"
+  _TRIM="${_TRIM%"${_TRIM##*[![:space:]]}"}"
+}
+
+# Načte profily zařízení do DEV_CONF a DEV_NAMES. $1=soubor (nemusí existovat)
+load_devices() {
+  local file="$1" line key value section="" n=0
+  [[ -f "$file" ]] || return 0
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    n=$((n + 1))
+    trim "${line%$'\r'}"
+    line="$_TRIM"
+    if [[ -z "$line" || "$line" == \#* ]]; then
+      continue
+    elif [[ "$line" =~ ^\[([a-z0-9][a-z0-9_-]*)\]$ ]]; then
+      section="${BASH_REMATCH[1]}"
+      if [[ -z "${DEV_CONF[$section.]+x}" ]]; then
+        DEV_CONF[$section.]=1
+        DEV_NAMES+=("$section")
+      fi
+    elif [[ -n "$section" && "$line" =~ ^([a-z0-9_]+)[[:space:]]*=(.*)$ ]]; then
+      key="${BASH_REMATCH[1]}"
+      trim "${BASH_REMATCH[2]}"
+      value="$_TRIM"
+      if [[ " $DEV_KEYS " == *" $key "* ]]; then
+        DEV_CONF[$section.$key]="$value"
+      else
+        warn "$file:$n: neznámý klíč '$key'"
+      fi
+    else
+      warn "$file:$n: neplatný řádek: $line"
+    fi
+  done <"$file"
+}
+
+# Vypíše hodnotu klíče z uživatelské konfigurace. $1=klíč
+config_get() {
+  local line
+  [[ -f "$CONFIG_DIR/config" ]] || return 0
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    trim "${line%$'\r'}"
+    if [[ "$_TRIM" =~ ^$1[[:space:]]*=(.*)$ ]]; then
+      trim "${BASH_REMATCH[1]}"
+      printf '%s' "$_TRIM"
+      return 0
+    fi
+  done <"$CONFIG_DIR/config"
+}
+
+# Uloží klíč do uživatelské konfigurace, ostatní řádky ponechá. $1=klíč $2=hodnota
+config_set() {
+  local line
+  local -a lines=()
+  if [[ -f "$CONFIG_DIR/config" ]]; then
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      line="${line%$'\r'}"
+      trim "$line"
+      [[ "$_TRIM" =~ ^$1[[:space:]]*= ]] || lines+=("$line")
+    done <"$CONFIG_DIR/config"
+  else
+    lines+=("# Video convertor pro TV – uživatelská konfigurace")
+  fi
+  lines+=("$1=$2")
+  mkdir -p "$CONFIG_DIR"
+  printf '%s\n' "${lines[@]}" >"$CONFIG_DIR/config"
+}
+
+# Hodnota klíče profilu zařízení, chybějící klíč = výchozí (profil hyundai).
+# $1=zařízení $2=klíč, výsledek v _DEV.
+dev_get() {
+  if [[ -n "${DEV_CONF[$1.$2]+x}" ]]; then
+    _DEV="${DEV_CONF[$1.$2]}"
+    return 0
+  fi
+  case "$2" in
+    audio_codec) _DEV="ac3" ;;
+    audio_kbps)  _DEV="384" ;;
+    audio_copy)  _DEV="ac3 mp3" ;;
+    max_width)   _DEV="1280" ;;
+    max_height)  _DEV="720" ;;
+    *)           _DEV="" ;;
+  esac
+}
+
+# Výchozí zařízení: konfigurace, jinak hyundai. Výsledek v _DEV.
+default_device() {
+  _DEV="$(config_get device)"
+  [[ -n "$_DEV" ]] || _DEV="hyundai"
+}
+
+# Vypíše profily zařízení (* = výchozí).
+list_devices() {
+  local d mark
+  default_device
+  local def="$_DEV"
+  log "Profily zařízení (* výchozí):"
+  for d in "${DEV_NAMES[@]}"; do
+    mark=" "
+    [[ "$d" != "$def" ]] || mark="*"
+    dev_get "$d" description
+    log "  $mark $d – $_DEV"
+  done
+  log "Konfigurace: $CONFIG_DIR/config (výchozí zařízení), $CONFIG_DIR/devices.conf (vlastní profily)"
+}
+
+# Ověří, že zařízení existuje a má platné hodnoty, a nastaví DEV_AUDIO_CODEC,
+# DEV_AUDIO_KBPS, DEV_AUDIO_COPY, DEV_H264_MAX_LEVEL, DEV_MAX_W, DEV_MAX_H.
+# $1=zařízení
+use_device() {
+  local d="$1"
+  if [[ -z "${DEV_CONF[$d.]+x}" ]]; then
+    err "Neznámé zařízení: $d (povolené: ${DEV_NAMES[*]})"
+    exit 1
+  fi
+  dev_get "$d" audio_codec;    DEV_AUDIO_CODEC="$_DEV"
+  dev_get "$d" audio_kbps;     DEV_AUDIO_KBPS="$_DEV"
+  dev_get "$d" audio_copy;     DEV_AUDIO_COPY="$_DEV"
+  dev_get "$d" h264_max_level; DEV_H264_MAX_LEVEL="$_DEV"
+  dev_get "$d" max_width;      DEV_MAX_W="$_DEV"
+  dev_get "$d" max_height;     DEV_MAX_H="$_DEV"
+  case "$DEV_AUDIO_CODEC" in
+    ac3|aac) ;;
+    *) err "Zařízení $d: audio_codec musí být ac3 nebo aac"; exit 1 ;;
+  esac
+  local x
+  for x in "$DEV_AUDIO_KBPS" "$DEV_MAX_W" "$DEV_MAX_H" "${DEV_H264_MAX_LEVEL:-0}"; do
+    [[ "$x" =~ ^[0-9]+$ ]] || { err "Zařízení $d: neplatná číselná hodnota '$x'"; exit 1; }
+  done
+}
+
+# Level H.264 pro kódování: 3.1 stačí do 1280x720, větší obraz potřebuje 4.1.
+h264_level() {
+  if (( DEV_MAX_W > 1280 || DEV_MAX_H > 720 )); then printf '41'; else printf '31'; fi
 }
 
 # --- Výběr stop -------------------------------------------------------------
@@ -414,7 +571,7 @@ decide_video() {
 
   # nutná škála?
   if [[ "$w" =~ ^[0-9]+$ && "$h" =~ ^[0-9]+$ ]]; then
-    (( w > 1280 || h > 720 )) && return 0
+    (( w > DEV_MAX_W || h > DEV_MAX_H )) && return 0
   else
     return 0
   fi
@@ -428,6 +585,13 @@ decide_video() {
       ;;
     *)
       [[ "$codec" == "h264" ]] || return 0
+      # level nad možnosti zařízení (nebo neznámý) -> překódovat
+      if [[ -n "$DEV_H264_MAX_LEVEL" ]]; then
+        local lvl
+        lvl="$(probe1 "$file" V:0 stream=level)"
+        [[ "$lvl" =~ ^[0-9]+$ ]] || return 0
+        (( lvl > DEV_H264_MAX_LEVEL )) && return 0
+      fi
       local sbr tgt
       sbr="$(stream_bitrate "$file" V:0)"
       tgt="$(profile_video_kbps)"
@@ -442,10 +606,58 @@ decide_video() {
   VIDEO_COPY=1
 }
 
-# Rozhodne kopii/parametry audia. Nastaví AUDIO_COPY=0|1, AUDIO_BR, AUDIO_AR. $1=file $2=idx
+# Při kopii videa zjistí, zda má stálou snímkovou frekvenci, jen s rozkolísanými
+# časovými značkami (typicky H.264 z MKV, kde jsou časy v ms: snímky 23,976 fps
+# pak mají střídavě 41 a 42 ms). V MP4 takové video nepřehraje např. LG webOS
+# 3.0 (tabulka délek snímků nejde zhustit a index celého filmu je pro TV moc
+# velký), krátké úseky ano. Časy se pak srovnají na mřížku snímků filtrem setts
+# bez překódování. Skutečně proměnná frekvence (každý čas musí ležet do 1/4
+# snímku od mřížky a dva snímky nesmí padnout na stejný čas) se nechá být.
+# Nastaví VIDEO_TS_SCALE (časová základna 1/N) a VIDEO_TS_STEP (délka snímku
+# v ní), nebo prázdné. $1=file
+decide_timestamps() {
+  local file="$1" rate tb num den tbn tbd verdict k
+  VIDEO_TS_SCALE=""
+  VIDEO_TS_STEP=""
+  rate="$(probe1 "$file" V:0 stream=r_frame_rate)"
+  tb="$(probe1 "$file" V:0 stream=time_base)"
+  [[ "$rate" =~ ^([0-9]+)/([0-9]+)$ ]] || return 0
+  num="${BASH_REMATCH[1]}"
+  den="${BASH_REMATCH[2]}"
+  [[ "$tb" =~ ^([0-9]+)/([0-9]+)$ ]] || return 0
+  tbn="${BASH_REMATCH[1]}"
+  tbd="${BASH_REMATCH[2]}"
+  (( num > 0 && den > 0 && tbn > 0 && tbd > 0 )) || return 0
+
+  # PTS, protože MKV DTS neukládá
+  verdict="$(ffprobe -v error -select_streams V:0 -show_entries packet=pts -of csv=p=0 "$file" 2>/dev/null \
+    | awk -F, -v n="$num" -v d="$den" -v a="$tbn" -v b="$tbd" '
+        BEGIN { f = d / n }
+        $1 ~ /^-?[0-9]+$/ && !bad {
+          t = $1 * a / b
+          q = t / f
+          r = (q >= 0) ? int(q + 0.5) : -int(-q + 0.5)
+          dev = t - r * f
+          if (dev < 0) dev = -dev
+          if (dev > f / 4 || (r in seen)) bad = 1
+          seen[r] = 1
+          if (dev > 0.0001) jit = 1
+        }
+        END { if (bad) print "vfr"; else if (jit) print "jitter"; else print "ok" }' || true)"
+  [[ "$verdict" == "jitter" ]] || return 0
+
+  # časová základna aspoň 1/10000 s (24000/1001 -> 1/24000, 25 -> 1/10000)
+  k=$(( (10000 + num - 1) / num ))
+  VIDEO_TS_SCALE=$(( num * k ))
+  VIDEO_TS_STEP=$(( den * k ))
+}
+
+# Rozhodne kopii/parametry audia. Nastaví AUDIO_COPY=0|1, AUDIO_CODEC,
+# AUDIO_BR, AUDIO_AR. $1=file $2=idx
 decide_audio() {
   local file="$1" idx="$2"
   AUDIO_COPY=0
+  AUDIO_CODEC=""
   AUDIO_BR=""
   AUDIO_AR=""
 
@@ -455,8 +667,9 @@ decide_audio() {
   sr="$(probe1 "$file" "a:$idx" stream=sample_rate)"
   abr="$(stream_bitrate "$file" "a:$idx")"
 
-  # kopie jen ac3/mp3 splňující stereo/<=48k/<=384k (známý bitrate)
-  if [[ "$codec" == "ac3" || "$codec" == "mp3" ]] \
+  # kopie jen kodeků podporovaných zařízením (audio_copy) splňujících
+  # stereo/<=48k/<=384k (známý bitrate)
+  if [[ -n "$codec" && " $DEV_AUDIO_COPY " == *" $codec "* ]] \
      && [[ "$ch" =~ ^[0-9]+$ && "$ch" -le 2 ]] \
      && [[ "$sr" =~ ^[0-9]+$ && "$sr" -le 48000 ]] \
      && [[ "$abr" =~ ^[0-9]+$ && "$abr" -le 384000 ]]; then
@@ -466,7 +679,13 @@ decide_audio() {
 
   # re-enkód: cíl dle profilu, capnutý na zdroj
   local tgt
-  if [[ "$PROFILE" == "hd10" ]]; then tgt=160; else tgt=384; fi
+  if [[ "$PROFILE" == "hd10" ]]; then
+    AUDIO_CODEC="aac"
+    tgt=160
+  else
+    AUDIO_CODEC="$DEV_AUDIO_CODEC"
+    tgt="$DEV_AUDIO_KBPS"
+  fi
   if [[ "$abr" =~ ^[0-9]+$ ]]; then
     local src_kbps=$(( abr / 1000 ))
     (( src_kbps < tgt )) && tgt="$src_kbps"
@@ -504,7 +723,7 @@ build_vf() {
   local crop="$1" sub="$2"
   local -a parts=()
   [[ -n "$crop" ]] && parts+=("$crop")
-  parts+=("scale='min(1280,iw)':'min(720,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2")
+  parts+=("scale='min($DEV_MAX_W,iw)':'min($DEV_MAX_H,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2")
   [[ -n "$sub" ]] && parts+=("ass=f=$sub")
   local IFS=,
   VF="${parts[*]}"
@@ -516,6 +735,11 @@ append_video_opts() {
 
   if [[ "$VIDEO_COPY" == "1" ]]; then
     CMD+=(-c:v copy)
+    if [[ -n "$VIDEO_TS_SCALE" ]]; then
+      local st="$VIDEO_TS_STEP"
+      CMD+=(-bsf:v "setts=time_base=1/$VIDEO_TS_SCALE:prescale=1:pts=round(PTS/$st)*$st:dts=round(DTS/$st)*$st:duration=$st"
+            -video_track_timescale "$VIDEO_TS_SCALE")
+    fi
     [[ "$PROFILE" == "hd10" ]] && CMD+=(-tag:v hvc1)
     return 0
   fi
@@ -531,9 +755,9 @@ append_video_opts() {
         (( skbps < tgt )) && eff="$skbps"
       fi
       if [[ "$VIDEO_BACKEND" == "videotoolbox" ]]; then
-        CMD+=(-c:v h264_videotoolbox -b:v "${eff}k" -profile:v high -level 31)
+        CMD+=(-c:v h264_videotoolbox -b:v "${eff}k" -profile:v high -level "$(h264_level)")
       else
-        CMD+=(-c:v libx264 -preset medium -b:v "${eff}k" -profile:v high -level 31)
+        CMD+=(-c:v libx264 -preset medium -b:v "${eff}k" -profile:v high -level "$(h264_level)")
       fi
       ;;
     hd10)
@@ -557,7 +781,7 @@ append_video_opts() {
   esac
 }
 
-# Přidá audio kodek dle profilu (a AUDIO_COPY) pro výstupní stopu a:K do pole CMD.
+# Přidá audio kodek (podle decide_audio) pro výstupní stopu a:K do pole CMD.
 # $1=K
 append_audio_opts() {
   local k="$1"
@@ -565,11 +789,7 @@ append_audio_opts() {
     CMD+=("-c:a:$k" copy)
     return 0
   fi
-  if [[ "$PROFILE" == "hd10" ]]; then
-    CMD+=("-c:a:$k" aac "-b:a:$k" "$AUDIO_BR" "-ac:a:$k" 2 "-ar:a:$k" "$AUDIO_AR")
-  else
-    CMD+=("-c:a:$k" ac3 "-b:a:$k" "$AUDIO_BR" "-ac:a:$k" 2 "-ar:a:$k" "$AUDIO_AR")
-  fi
+  CMD+=("-c:a:$k" "$AUDIO_CODEC" "-b:a:$k" "$AUDIO_BR" "-ac:a:$k" 2 "-ar:a:$k" "$AUDIO_AR")
 }
 
 # Přidá jazyk do metadat výstupní stopy, pokud byl zjištěn z názvu a tag zdroje
@@ -596,7 +816,7 @@ process_file() {
   dir="$(cd "$(dirname "$input")" && pwd)"
   base="$(basename "$input")"
   name="${base%.*}"
-  out_dir="${OUTDIR:-$dir/tv}"
+  out_dir="${OUTDIR:-$dir/tv-$DEVICE}"
 
   log
   log "=== $input ==="
@@ -676,13 +896,13 @@ process_file() {
     err "Výstup by přepsal vstup: $output"
     return 1
   fi
-  # např. film.avi a film.mkv ve stejné složce -> stejný tv/film.mp4
+  # např. film.avi a film.mkv ve stejné složce -> stejný tv-<zařízení>/film.mp4
   if [[ -n "${OUTPUTS_DONE[$output]+x}" ]]; then
     warn "Výstup $output už v tomto běhu vznikl z ${OUTPUTS_DONE[$output]}, přeskakuji: $input"
     return 1
   fi
   OUTPUTS_DONE[$output]="$input"
-  log "Profil: $PROFILE  ->  výstup: $output"
+  log "Profil: $PROFILE, zařízení: $DEVICE  ->  výstup: $output"
 
   if [[ "$DRY_RUN" == "1" ]]; then
     # rozhodnutí bez znalosti ořezu (ten se zjistí až při konverzi)
@@ -694,6 +914,8 @@ process_file() {
     vbr="$(stream_bitrate "$input" V:0)"
     if [[ "$VIDEO_COPY" == "1" ]]; then
       log "Video: kopie (${vcodec} ${vw}x${vh}${vbr:+ $(( vbr / 1000 ))k}) (ořez se zjistí až při konverzi)"
+      decide_timestamps "$input"
+      [[ -z "$VIDEO_TS_SCALE" ]] || log "Video: srovnat rozkolísané časové značky (časová základna 1/$VIDEO_TS_SCALE)"
     else
       log "Video: překódovat (zdroj ${vcodec} ${vw}x${vh}${vbr:+ $(( vbr / 1000 ))k})"
     fi
@@ -705,7 +927,7 @@ process_file() {
       if [[ "$AUDIO_COPY" == "1" ]]; then
         log "Audio a:$aidx: kopie (${acodec} ${ach}ch${abr2:+ $(( abr2 / 1000 ))k})"
       else
-        log "Audio a:$aidx: překódovat -> ${AUDIO_BR} @ ${AUDIO_AR} Hz (zdroj ${acodec} ${ach}ch${abr2:+ $(( abr2 / 1000 ))k})"
+        log "Audio a:$aidx: překódovat -> ${AUDIO_CODEC} ${AUDIO_BR} @ ${AUDIO_AR} Hz (zdroj ${acodec} ${ach}ch${abr2:+ $(( abr2 / 1000 ))k})"
       fi
     done
     log "(dry-run: cropdetect a konverze přeskočeny)"
@@ -751,8 +973,11 @@ process_file() {
 
   # 4) rozhodnutí kopie vs překódování
   decide_video "$input" "$crop"
+  VIDEO_TS_SCALE=""
   if [[ "$VIDEO_COPY" == "1" ]]; then
     log "Video: kopie (-c:v copy)"
+    decide_timestamps "$input"
+    [[ -z "$VIDEO_TS_SCALE" ]] || log "Video: srovnat rozkolísané časové značky (časová základna 1/$VIDEO_TS_SCALE)"
   else
     log "Video: překódovat"
   fi
@@ -817,7 +1042,7 @@ process_file() {
     if [[ "$AUDIO_COPY" == "1" ]]; then
       log "Audio a:$aidx: kopie (-c:a copy)"
     else
-      log "Audio a:$aidx: překódovat -> ${AUDIO_BR} @ ${AUDIO_AR} Hz"
+      log "Audio a:$aidx: překódovat -> ${AUDIO_CODEC} ${AUDIO_BR} @ ${AUDIO_AR} Hz"
     fi
     append_audio_opts "$k"
     if [[ "$k" == "0" ]]; then
@@ -875,14 +1100,13 @@ process_path() {
 }
 
 main() {
-  require_cmd ffmpeg
-  require_cmd ffprobe
-  require_cmd awk
-
   local -a inputs=()
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --profile) [[ $# -ge 2 ]] || { err "Chybí hodnota za --profile"; exit 1; }; PROFILE="$2"; shift 2 ;;
+      --device)  [[ $# -ge 2 ]] || { err "Chybí hodnota za --device"; exit 1; }; DEVICE="$2"; shift 2 ;;
+      --set-device) [[ $# -ge 2 ]] || { err "Chybí hodnota za --set-device"; exit 1; }; SET_DEVICE="$2"; shift 2 ;;
+      --list-devices)  LIST_DEVICES="1"; shift ;;
       --cq)      [[ $# -ge 2 ]] || { err "Chybí hodnota za --cq"; exit 1; }; CQ="$2"; shift 2 ;;
       --threshold) [[ $# -ge 2 ]] || { err "Chybí hodnota za --threshold"; exit 1; }; THRESHOLD="$2"; shift 2 ;;
       --outdir)  [[ $# -ge 2 ]] || { err "Chybí hodnota za --outdir"; exit 1; }; OUTDIR="$2"; shift 2 ;;
@@ -899,6 +1123,28 @@ main() {
       *)  inputs+=("$1"); shift ;;
     esac
   done
+
+  load_devices "$SCRIPT_DIR/devices.conf"
+  load_devices "$CONFIG_DIR/devices.conf"
+  if [[ "$LIST_DEVICES" == "1" ]]; then
+    list_devices
+    exit 0
+  fi
+  if [[ -n "$SET_DEVICE" ]]; then
+    use_device "$SET_DEVICE"
+    config_set device "$SET_DEVICE"
+    log "Výchozí zařízení: $SET_DEVICE (uloženo do $CONFIG_DIR/config)"
+    exit 0
+  fi
+  if [[ -z "$DEVICE" ]]; then
+    default_device
+    DEVICE="$_DEV"
+  fi
+  use_device "$DEVICE"
+
+  require_cmd ffmpeg
+  require_cmd ffprobe
+  require_cmd awk
 
   case "$PROFILE" in
     standard|akcni|serialy|hd10) ;;

@@ -429,3 +429,128 @@ function Invoke-Native([string] $Command, [object[]] $Arguments) {
     & $Command @Arguments
     if ($LASTEXITCODE -ne 0) { throw "$Command skončil s kódem $LASTEXITCODE." }
 }
+
+# --- Profily zařízení a konfigurace (shodné s convert-for-tv.sh) ------------
+#
+# Vestavěné profily jsou ve scripts\devices.conf, vlastní v devices.conf
+# v konfigurační složce (stejný název profilu přepíše jen uvedené klíče).
+# Výchozí zařízení je v souboru config tamtéž (device=nazev).
+
+$script:ConfigDirectory = if ($env:APPDATA) {
+    Join-Path $env:APPDATA 'video-convertor'
+} elseif ($env:XDG_CONFIG_HOME) {
+    Join-Path $env:XDG_CONFIG_HOME 'video-convertor'
+} else {
+    Join-Path (Join-Path $HOME '.config') 'video-convertor'
+}
+$script:DeviceKeys = @('description', 'audio_codec', 'audio_kbps', 'audio_copy', 'h264_max_level', 'max_width', 'max_height')
+# Chybějící klíč = výchozí hodnota (profil hyundai).
+$script:DeviceDefaults = @{
+    description = ''; audio_codec = 'ac3'; audio_kbps = '384'; audio_copy = 'ac3 mp3'
+    h264_max_level = ''; max_width = '1280'; max_height = '720'
+}
+
+# Načte profily zařízení ze souboru do $Devices (název -> @{ klíč = hodnota }).
+function Read-DeviceFile($Devices, [string] $File) {
+    if (-not (Test-Path -LiteralPath $File -PathType Leaf)) { return }
+    $section = $null
+    $number = 0
+    foreach ($raw in [IO.File]::ReadAllLines($File, [Text.Encoding]::UTF8)) {
+        $number++
+        $line = $raw.Trim()
+        if (-not $line -or $line.StartsWith('#')) { continue }
+        if ($line -cmatch '^\[([a-z0-9][a-z0-9_-]*)\]$') {
+            $section = $Matches[1]
+            if (-not $Devices.Contains($section)) { $Devices[$section] = @{} }
+        } elseif ($section -and $line -cmatch '^([a-z0-9_]+)\s*=(.*)$') {
+            $key = $Matches[1]
+            $value = $Matches[2].Trim()
+            if ($script:DeviceKeys -ccontains $key) { $Devices[$section][$key] = $value }
+            else { Write-Warning "${File}:${number}: neznámý klíč '$key'" }
+        } else {
+            Write-Warning "${File}:${number}: neplatný řádek: $line"
+        }
+    }
+}
+
+# Vrátí profily zařízení (vestavěné + vlastní) v pořadí načtení.
+function Get-Devices {
+    $devices = [ordered]@{}
+    Read-DeviceFile $devices ([IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\devices.conf')))
+    Read-DeviceFile $devices (Join-Path $script:ConfigDirectory 'devices.conf')
+    return $devices
+}
+
+# Hodnota klíče z uživatelské konfigurace, nebo ''.
+function Get-ConfigValue([string] $Key) {
+    $file = Join-Path $script:ConfigDirectory 'config'
+    if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { return '' }
+    foreach ($raw in [IO.File]::ReadAllLines($file, [Text.Encoding]::UTF8)) {
+        if ($raw.Trim() -cmatch "^$Key\s*=(.*)$") { return $Matches[1].Trim() }
+    }
+    return ''
+}
+
+# Uloží klíč do uživatelské konfigurace, ostatní řádky ponechá.
+function Set-ConfigValue([string] $Key, [string] $Value) {
+    $file = Join-Path $script:ConfigDirectory 'config'
+    $lines = [System.Collections.Generic.List[string]]::new()
+    if (Test-Path -LiteralPath $file -PathType Leaf) {
+        foreach ($raw in [IO.File]::ReadAllLines($file, [Text.Encoding]::UTF8)) {
+            if ($raw.Trim() -cnotmatch "^$Key\s*=") { $lines.Add($raw) }
+        }
+    } else {
+        $lines.Add('# Video convertor pro TV – uživatelská konfigurace')
+    }
+    $lines.Add("$Key=$Value")
+    New-Item -ItemType Directory -Path $script:ConfigDirectory -Force | Out-Null
+    # UTF-8 bez BOM, stejně jako bash verze
+    [IO.File]::WriteAllLines($file, $lines.ToArray(), (New-Object System.Text.UTF8Encoding $false))
+}
+
+# Výchozí zařízení: konfigurace, jinak hyundai.
+function Get-DefaultDevice {
+    $name = Get-ConfigValue 'device'
+    if (-not $name) { $name = 'hyundai' }
+    return $name
+}
+
+function Show-Devices($Devices) {
+    $default = Get-DefaultDevice
+    Write-Host 'Profily zařízení (* výchozí):'
+    foreach ($name in $Devices.Keys) {
+        $mark = if ($name -ceq $default) { '*' } else { ' ' }
+        $description = $script:DeviceDefaults['description']
+        if ($Devices[$name].ContainsKey('description')) { $description = $Devices[$name]['description'] }
+        Write-Host "  $mark $name – $description"
+    }
+    $configFile = Join-Path $script:ConfigDirectory 'config'
+    $devicesFile = Join-Path $script:ConfigDirectory 'devices.conf'
+    Write-Host "Konfigurace: $configFile (výchozí zařízení), $devicesFile (vlastní profily)"
+}
+
+# Ověří zařízení a vrátí @{ Name; AudioCodec; AudioKbps; AudioCopy; H264MaxLevel; MaxWidth; MaxHeight }.
+function Get-Device($Devices, [string] $Name) {
+    if (@($Devices.Keys) -cnotcontains $Name) {
+        throw "Neznámé zařízení: $Name (povolené: $(@($Devices.Keys) -join ' '))"
+    }
+    $values = @{}
+    foreach ($key in $script:DeviceKeys) {
+        $values[$key] = $script:DeviceDefaults[$key]
+        if ($Devices[$Name].ContainsKey($key)) { $values[$key] = $Devices[$Name][$key] }
+    }
+    if ($values['audio_codec'] -cnotin @('ac3', 'aac')) { throw "Zařízení ${Name}: audio_codec musí být ac3 nebo aac" }
+    $level = if ($values['h264_max_level']) { $values['h264_max_level'] } else { '0' }
+    foreach ($number in @($values['audio_kbps'], $values['max_width'], $values['max_height'], $level)) {
+        if ($number -notmatch '^\d+$') { throw "Zařízení ${Name}: neplatná číselná hodnota '$number'" }
+    }
+    return @{
+        Name = $Name
+        AudioCodec = $values['audio_codec']
+        AudioKbps = [int]$values['audio_kbps']
+        AudioCopy = @($values['audio_copy'] -split '\s+' | Where-Object { $_ })
+        H264MaxLevel = $(if ($values['h264_max_level']) { [int]$values['h264_max_level'] } else { $null })
+        MaxWidth = [int]$values['max_width']
+        MaxHeight = [int]$values['max_height']
+    }
+}

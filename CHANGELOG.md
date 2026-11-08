@@ -2,6 +2,19 @@
 
 Formát vychází z [Keep a Changelog](https://keepachangelog.com/cs/1.1.0/), verze podle souboru `VERSION`.
 
+## [0.3.0] – 2026-11-08
+
+### Přidáno
+- Profily cílových zařízení (`--device`, `--list-devices`, `--set-device`; Windows `-Device`, `-ListDevices`, `-SetDevice`): kodek zvuku, kopírovatelné zvukové kodeky, nejvyšší level H.264 pro kopii a nejvyšší rozlišení. Vestavěné `hyundai` (dosavadní chování) a `lg` (LG 49LH6047, kopie H.264 do levelu 4.2, kopie i AAC) ve sdíleném `scripts/devices.conf`, vlastní profily a výchozí zařízení v uživatelské konfiguraci.
+
+### Změněno
+- Výstup jde do podadresáře `tv-<zařízení>` místo `tv` (např. `tv-hyundai`, `tv-lg`).
+- `fix-audio-offsets` při posunu zvuku zachová AAC (dříve vždy převedl na AC-3).
+
+### Opraveno
+- Video zkopírované z MKV mělo v MP4 rozkolísané časové značky (snímky 23,976 fps střídavě 41 a 42 ms) a LG 49LH6047 takový film odmítla („Tento soubor nelze rozpoznat“). Při kopii videa se stálou frekvencí se časy nově srovnají na mřížku snímků (filtr `setts`, bez překódování); skutečně proměnná frekvence zůstává beze změny.
+- `fix-audio-offsets.sh` spuštěný samostatně s českým locale neopravil offset (awk četl `0,48` jako 0).
+
 ## [0.2.1] – 2026-11-03
 
 ### Opraveno
