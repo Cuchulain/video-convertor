@@ -56,9 +56,18 @@ function Get-FfmpegProblems([string] $Ffmpeg = 'ffmpeg', [string] $Ffprobe = 'ff
 # Podporované vstupní formáty.
 $script:MediaExtensions = @('.mkv', '.mp4', '.m4v', '.mov', '.avi', '.wmv', '.asf', '.webm', '.ts', '.m2ts', '.mts', '.mpg', '.mpeg', '.flv')
 
-function Get-MediaFiles([string[]] $InputPaths) {
+# $SkipOutputDirectories: složky tv a tv-* (výstupy převodu) přeskočí, jinak by
+# např. "convert-for-tv.ps1 *" převedl výstup znovu do tv-<zařízení>\tv-<zařízení>.
+function Get-MediaFiles([string[]] $InputPaths, [switch] $SkipOutputDirectories) {
     $result = [System.Collections.Generic.List[string]]::new()
     foreach ($item in $InputPaths) {
+        if ($SkipOutputDirectories -and (Test-Path -LiteralPath $item -PathType Container)) {
+            $leaf = Split-Path -Leaf ([IO.Path]::GetFullPath($item).TrimEnd('\', '/'))
+            if ($leaf -ceq 'tv' -or $leaf -clike 'tv-*') {
+                Write-Warning "Přeskakuji výstupní složku $item (soubory z ní lze zadat jednotlivě)"
+                continue
+            }
+        }
         if ($item -match '[*?]') {
             Get-ChildItem -Path $item -File -ErrorAction SilentlyContinue | ForEach-Object {
                 if ($_.Extension -in $script:MediaExtensions) { $result.Add($_.FullName) }
@@ -443,11 +452,11 @@ $script:ConfigDirectory = if ($env:APPDATA) {
 } else {
     Join-Path (Join-Path $HOME '.config') 'video-convertor'
 }
-$script:DeviceKeys = @('description', 'audio_codec', 'audio_kbps', 'audio_copy', 'h264_max_level', 'max_width', 'max_height')
+$script:DeviceKeys = @('description', 'audio_codec', 'audio_kbps', 'audio_copy', 'h264_max_level', 'max_width', 'max_height', 'video_kbps_percent')
 # Chybějící klíč = výchozí hodnota (profil hyundai).
 $script:DeviceDefaults = @{
     description = ''; audio_codec = 'ac3'; audio_kbps = '384'; audio_copy = 'ac3 mp3'
-    h264_max_level = ''; max_width = '1280'; max_height = '720'
+    h264_max_level = ''; max_width = '1280'; max_height = '720'; video_kbps_percent = '100'
 }
 
 # Načte profily zařízení ze souboru do $Devices (název -> @{ klíč = hodnota }).
@@ -529,7 +538,8 @@ function Show-Devices($Devices) {
     Write-Host "Konfigurace: $configFile (výchozí zařízení), $devicesFile (vlastní profily)"
 }
 
-# Ověří zařízení a vrátí @{ Name; AudioCodec; AudioKbps; AudioCopy; H264MaxLevel; MaxWidth; MaxHeight }.
+# Ověří zařízení a vrátí @{ Name; AudioCodec; AudioKbps; AudioCopy; H264MaxLevel;
+# MaxWidth; MaxHeight; KbpsPercent }.
 function Get-Device($Devices, [string] $Name) {
     if (@($Devices.Keys) -cnotcontains $Name) {
         throw "Neznámé zařízení: $Name (povolené: $(@($Devices.Keys) -join ' '))"
@@ -541,9 +551,10 @@ function Get-Device($Devices, [string] $Name) {
     }
     if ($values['audio_codec'] -cnotin @('ac3', 'aac')) { throw "Zařízení ${Name}: audio_codec musí být ac3 nebo aac" }
     $level = if ($values['h264_max_level']) { $values['h264_max_level'] } else { '0' }
-    foreach ($number in @($values['audio_kbps'], $values['max_width'], $values['max_height'], $level)) {
+    foreach ($number in @($values['audio_kbps'], $values['max_width'], $values['max_height'], $level, $values['video_kbps_percent'])) {
         if ($number -notmatch '^\d+$') { throw "Zařízení ${Name}: neplatná číselná hodnota '$number'" }
     }
+    if ([int]$values['video_kbps_percent'] -lt 1) { throw "Zařízení ${Name}: video_kbps_percent musí být aspoň 1" }
     return @{
         Name = $Name
         AudioCodec = $values['audio_codec']
@@ -552,5 +563,6 @@ function Get-Device($Devices, [string] $Name) {
         H264MaxLevel = $(if ($values['h264_max_level']) { [int]$values['h264_max_level'] } else { $null })
         MaxWidth = [int]$values['max_width']
         MaxHeight = [int]$values['max_height']
+        KbpsPercent = [int]$values['video_kbps_percent']
     }
 }

@@ -139,7 +139,7 @@ EOF
 # devices.conf (stejný název profilu přepíše jen uvedené klíče). Výchozí
 # zařízení je v $CONFIG_DIR/config (device=nazev). Stejný formát čte VideoTools.ps1.
 
-DEV_KEYS="description audio_codec audio_kbps audio_copy h264_max_level max_width max_height"
+DEV_KEYS="description audio_codec audio_kbps audio_copy h264_max_level max_width max_height video_kbps_percent"
 
 # Ořízne mezery na začátku a konci. $1=text, výsledek v _TRIM.
 trim() {
@@ -223,6 +223,7 @@ dev_get() {
     audio_copy)  _DEV="ac3 mp3" ;;
     max_width)   _DEV="1280" ;;
     max_height)  _DEV="720" ;;
+    video_kbps_percent) _DEV="100" ;;
     *)           _DEV="" ;;
   esac
 }
@@ -249,8 +250,8 @@ list_devices() {
 }
 
 # Ověří, že zařízení existuje a má platné hodnoty, a nastaví DEV_AUDIO_CODEC,
-# DEV_AUDIO_KBPS, DEV_AUDIO_COPY, DEV_H264_MAX_LEVEL, DEV_MAX_W, DEV_MAX_H.
-# $1=zařízení
+# DEV_AUDIO_KBPS, DEV_AUDIO_COPY, DEV_H264_MAX_LEVEL, DEV_MAX_W, DEV_MAX_H,
+# DEV_KBPS_PCT. $1=zařízení
 use_device() {
   local d="$1"
   if [[ -z "${DEV_CONF[$d.]+x}" ]]; then
@@ -263,14 +264,18 @@ use_device() {
   dev_get "$d" h264_max_level; DEV_H264_MAX_LEVEL="$_DEV"
   dev_get "$d" max_width;      DEV_MAX_W="$_DEV"
   dev_get "$d" max_height;     DEV_MAX_H="$_DEV"
+  dev_get "$d" video_kbps_percent; DEV_KBPS_PCT="$_DEV"
   case "$DEV_AUDIO_CODEC" in
     ac3|aac) ;;
     *) err "Zařízení $d: audio_codec musí být ac3 nebo aac"; exit 1 ;;
   esac
   local x
-  for x in "$DEV_AUDIO_KBPS" "$DEV_MAX_W" "$DEV_MAX_H" "${DEV_H264_MAX_LEVEL:-0}"; do
+  for x in "$DEV_AUDIO_KBPS" "$DEV_MAX_W" "$DEV_MAX_H" "${DEV_H264_MAX_LEVEL:-0}" "$DEV_KBPS_PCT"; do
     [[ "$x" =~ ^[0-9]+$ ]] || { err "Zařízení $d: neplatná číselná hodnota '$x'"; exit 1; }
   done
+  if (( DEV_KBPS_PCT < 1 )); then
+    err "Zařízení $d: video_kbps_percent musí být aspoň 1"; exit 1
+  fi
 }
 
 # Level H.264 pro kódování: 3.1 stačí do 1280x720, větší obraz potřebuje 4.1.
@@ -535,14 +540,17 @@ stream_bitrate() {
   return 0
 }
 
-# Cílový video bitrate profilu v kbps (prázdné pro hd10).
+# Cílový video bitrate profilu v kbps (prázdné pro hd10), přepočtený podle
+# video_kbps_percent zařízení (hodnoty profilů jsou pro 1280x720).
 profile_video_kbps() {
+  local base
   case "$PROFILE" in
-    standard) printf '2000' ;;
-    akcni)    printf '2500' ;;
-    serialy)  printf '1600' ;;
-    hd10)     printf '' ;;
+    standard) base=2000 ;;
+    akcni)    base=2500 ;;
+    serialy)  base=1600 ;;
+    *)        return 0 ;;
   esac
+  printf '%s' "$(( base * DEV_KBPS_PCT / 100 ))"
 }
 
 # Rozhodne, zda lze video kopírovat. Nastaví VIDEO_COPY=0|1. $1=file $2=crop
@@ -1087,6 +1095,14 @@ process_file() {
 process_path() {
   local p="$1"
   if [[ -d "$p" ]]; then
+    # výstupní složka z dřívějšího běhu (např. "convert-for-tv.sh *") by se
+    # převedla znovu do tv-<zařízení>/tv-<zařízení>
+    local base
+    base="$(basename "$p")"
+    if [[ "$base" == "tv" || "$base" == tv-* ]]; then
+      warn "Přeskakuji výstupní složku $p (soubory z ní lze zadat jednotlivě)"
+      return 0
+    fi
     shopt -s nullglob
     local f
     for f in "$p"/*; do

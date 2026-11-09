@@ -2,6 +2,17 @@
 
 Formát vychází z [Keep a Changelog](https://keepachangelog.com/cs/1.1.0/), verze podle souboru `VERSION`.
 
+## [Nevydáno]
+
+### Přidáno
+- Klíč `video_kbps_percent` v profilech zařízení: datové toky profilů kvality (dělané pro 720p) se pro zařízení s vyšším rozlišením navýší.
+
+### Změněno
+- Profil `lg` převádí ve Full HD (max. 1920 × 1080) s datovým tokem 180 % (`standard` 3 600 kb/s); zdroj 1080p s nižším datovým tokem se zkopíruje místo zmenšení na 720p.
+
+### Opraveno
+- Převod přeskočí výstupní složky `tv` a `tv-…` zadané jako adresář; `convert-for-tv.sh *` po předchozím běhu už nevytvoří zanořenou `tv-lg/tv-lg`.
+
 ## [0.3.0] – 2026-11-08
 
 ### Přidáno

@@ -4,7 +4,7 @@ Pokyny pro AI agenty (Claude Code, Codex, Cursor…) i lidi, kteří v projektu 
 
 ## O projektu
 
-Sada skriptů nad FFmpeg, která převádí videa (MKV, MP4, AVI…) do MP4 pro televizor: vybere zvuk a titulky (čeština → slovenština → angličtina), titulky vypálí nebo vloží, zmenší obraz na max. 1280 × 720 a opraví audio offset. Co cílová TV umí (kodek zvuku, level H.264, rozlišení), určuje profil zařízení (`--device`), výstup jde do `tv-<zařízení>`. Náhrada za dříve používaný HandBrake (profily v `HandBrake-profiles/` jsou jen historická reference, skripty je nenačítají).
+Sada skriptů nad FFmpeg, která převádí videa (MKV, MP4, AVI…) do MP4 pro televizor: vybere zvuk a titulky (čeština → slovenština → angličtina), titulky vypálí nebo vloží, zmenší obraz na max. rozlišení zařízení (výchozí 1280 × 720) a opraví audio offset. Co cílová TV umí (kodek zvuku, level H.264, rozlišení), určuje profil zařízení (`--device`), výstup jde do `tv-<zařízení>`. Náhrada za dříve používaný HandBrake (profily v `HandBrake-profiles/` jsou jen historická reference, skripty je nenačítají).
 
 ## Struktura
 

@@ -23,12 +23,14 @@ Skript kompatibilní stopu zkopíruje bez ztráty kvality. Kopírované video se
 
 ## Cílová zařízení
 
-Televizory se liší v tom, co v MP4 přehrají. Profil zařízení určuje kodek zvuku, které zvukové stopy lze zkopírovat, nejvyšší level H.264 pro kopii videa a nejvyšší rozlišení. Kvalitu (datový tok) dál určuje `--profile`.
+Televizory se liší v tom, co v MP4 přehrají. Profil zařízení určuje kodek zvuku, které zvukové stopy lze zkopírovat, nejvyšší level H.264 pro kopii videa a nejvyšší rozlišení. Kvalitu dál určuje `--profile`; jeho datové toky jsou pro 1280 × 720 a zařízení s vyšším rozlišením je navýší (`video_kbps_percent`).
 
-| Zařízení | Zvuk | Kopie videa | Poznámka |
-|---|---|---|---|
-| `hyundai` (výchozí) | AC-3, max. 384 kb/s; kopie AC-3, MP3 | H.264 bez omezení levelu | původní nastavení |
-| `lg` | AC-3, max. 384 kb/s; kopie AC-3, AAC, MP3 | H.264 do levelu 4.2 | LG 49LH6047 (webOS 3.0), limity podle specifikace LG |
+| Zařízení | Rozlišení a datový tok videa | Zvuk | Kopie videa | Poznámka |
+|---|---|---|---|---|
+| `hyundai` (výchozí) | max. 1280 × 720, `standard` 2 000 kb/s | AC-3, max. 384 kb/s; kopie AC-3, MP3 | H.264 bez omezení levelu | původní nastavení |
+| `lg` | max. 1920 × 1080, 180 % (`standard` 3 600, `akcni` 4 500, `serialy` 2 880 kb/s) | AC-3, max. 384 kb/s; kopie AC-3, AAC, MP3 | H.264 do levelu 4.2 | LG 49LH6047 (webOS 3.0, Full HD), limity podle specifikace LG |
+
+Full HD výstup je zhruba 1,8× větší (film na 107 minut ~3 GB). Na USB disku se systémem FAT32 je limit 4 GB na soubor, který může překročit film delší než asi 2,5 hodiny; NTFS toto omezení nemá.
 
 ```bash
 ./scripts/convert-for-tv.sh --list-devices          # profily a výchozí zařízení
@@ -153,7 +155,7 @@ Více vstupů lze předat za `-Path` oddělených čárkou. Kromě souborů jsou
 
 ## Podporované vstupy
 
-`.mkv`, `.mp4`, `.m4v`, `.mov`, `.avi`, `.wmv`, `.asf`, `.webm`, `.ts`, `.m2ts`, `.mts`, `.mpg`, `.mpeg`, `.flv` (bez ohledu na velikost písmen). Při zadání adresáře se zpracují všechny takové soubory v něm (bez podadresářů).
+`.mkv`, `.mp4`, `.m4v`, `.mov`, `.avi`, `.wmv`, `.asf`, `.webm`, `.ts`, `.m2ts`, `.mts`, `.mpg`, `.mpeg`, `.flv` (bez ohledu na velikost písmen). Při zadání adresáře se zpracují všechny takové soubory v něm (bez podadresářů). Výstupní složky `tv` a `tv-…` zadané jako adresář převod přeskočí (třeba při `convert-for-tv.sh *` po předchozím běhu), soubory z nich lze zadat jednotlivě.
 
 - U AVI se dopočítají chybějící časové značky (`-fflags +genpts`), aby šlo H.264 video zkopírovat do MP4 bez překódování.
 - Obal filmu uložený jako obrázková stopa (MP4/MOV/M4V) se ignoruje a použije se skutečné video.

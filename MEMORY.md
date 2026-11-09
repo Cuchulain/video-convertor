@@ -4,6 +4,11 @@ Projektová paměť: rozhodnutí, jejich důvody a poučení, která nejsou zře
 
 ## Rozhodnutí
 
+### 2026-11-08 – Full HD pro LG: datový tok v procentech
+- Datové toky profilů kvality (2000/2500/1600 kb/s) jsou pro 720p. Full HD má 2,25× víc pixelů, ale datový tok stačí zhruba 1,8× (kodér je u většího obrazu efektivnější), proto `lg` má `video_kbps_percent = 180`.
+- Jedno procento v profilu zařízení místo hodnot pro každý profil kvality: platí i pro budoucí profily a méně se nastavuje. `hd10` se nemění (řídí se kvalitou CQ, ne datovým tokem).
+- Level H.264 při kódování se přepne na 4.1 automaticky podle `max_width`/`max_height` (LG zvládne 4.2).
+
 ### 2026-11-08 – Srovnání rozkolísaných časových značek při kopii videa
 - LG 49LH6047 hlásila u filmu „Tento soubor nelze rozpoznat“, 2min ukázky stejného souboru (i s AC-3) ale hrály, obě poloviny filmu ne. Rozdíl proti funkčnímu filmu: video zkopírované z MKV (časy v ms) mělo v MP4 délky snímků střídavě 41/42 ms (časová základna 1/90000, 3780/3690), tabulka `stts` nejde zhustit a index dlouhého filmu TV odmítne. Překódované video ze skriptu má stálé délky, proto hrálo.
 - Ověřeno na TV: celý film přebalený s `setts` na mřížku 1001/24000 hraje (B-snímky nevadí, AC-3 v MP4 také ne); film převedený opraveným skriptem také.

@@ -279,8 +279,12 @@ function Get-TimestampFix([string] $File, $VideoStream) {
     return @{ Scale = $rateNum * $factor; Step = $rateDen * $factor }
 }
 
+# Cílový video bitrate profilu v kbps ($null pro hd10), přepočtený podle
+# video_kbps_percent zařízení (hodnoty profilů jsou pro 1280x720).
 function Get-TargetVideoKbps([string] $Name) {
-    switch ($Name) { 'standard' { 2000 } 'akcni' { 2500 } 'serialy' { 1600 } default { $null } }
+    $base = switch ($Name) { 'standard' { 2000 } 'akcni' { 2500 } 'serialy' { 1600 } default { $null } }
+    if ($null -eq $base) { return $null }
+    return [int][Math]::Floor($base * $targetDevice.KbpsPercent / 100)
 }
 
 # Nestačí ověřit, že sestavení FFmpeg enkodér uvádí. Krátký jednookénkový
@@ -366,7 +370,7 @@ $videoBackend = Resolve-VideoBackend $Hardware $Profile
 Write-Host "Kódování videa: $videoBackend (požadováno: $Hardware)"
 
 $outputsDone = @{}
-foreach ($file in (Get-MediaFiles $Path)) {
+foreach ($file in (Get-MediaFiles $Path -SkipOutputDirectories)) {
     Write-Host "`n=== $file ==="
     if (-not $DryRun -and $KeepAss -and $Profile -ne 'hd10') {
         & "$PSScriptRoot\extract-ass.ps1" -Path $file
