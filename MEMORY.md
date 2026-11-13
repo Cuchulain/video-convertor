@@ -4,6 +4,13 @@ Projektová paměť: rozhodnutí, jejich důvody a poučení, která nejsou zře
 
 ## Rozhodnutí
 
+### 2026-11-10 – Snížení modré pro LG
+- Převzato ze synova `blue_reducer.py` (GUI v Pythonu): `colorchannelmixer=bb=<podíl>`, mění jen modrý kanál v RGB. Docstring skriptu uvádí výchozích 60 %, posuvník v GUI ale začíná na 50 %; pro `lg` použito 50 % (k doladění na TV).
+- Úprava je klíč profilu zařízení (`blue_percent`), protože jde o vadu konkrétní TV, ne o kvalitu; `--blue` ji jednorázově přepíše.
+- Filtr je až za titulky, aby vypálené titulky měly stejný barevný posun jako obraz (korekce TV se týká všeho, co svítí).
+- Za filtrem musí být `format=yuv420p` (hd10 `yuv420p10le`): po RGB si libx264 jinak zvolí 4:4:4 a s `-profile:v high` skončí chybou. VideoToolbox to maskuje (4:2:0 si vynutí sám), Linux a Windows by spadly.
+- FFmpeg 9 převádí YUV↔RGB podle barevného prostoru zdroje (BT.709 u HD), při `bb=1.0` se barvy prakticky nezmění; 10bitové video jde přes `gbrp10le`, bitová hloubka se neztrácí.
+
 ### 2026-11-08 – Full HD pro LG: datový tok v procentech
 - Datové toky profilů kvality (2000/2500/1600 kb/s) jsou pro 720p. Full HD má 2,25× víc pixelů, ale datový tok stačí zhruba 1,8× (kodér je u většího obrazu efektivnější), proto `lg` má `video_kbps_percent = 180`.
 - Jedno procento v profilu zařízení místo hodnot pro každý profil kvality: platí i pro budoucí profily a méně se nastavuje. `hd10` se nemění (řídí se kvalitou CQ, ne datovým tokem).
@@ -84,6 +91,10 @@ Projektová paměť: rozhodnutí, jejich důvody a poučení, která nejsou zře
 - Základní Homebrew formule `ffmpeg` neobsahuje libass → nelze vypalovat ASS. `ffmpeg-full` ji má, ale je keg-only, proto ho skripty hledají přímo v `/opt/homebrew/opt/ffmpeg-full/bin` (a `/usr/local/opt/...`).
 
 ## Poučení (chyby, na které jsme narazili)
+
+- FFmpeg 9 (swscale) odmítne jakýkoli převod (zmenšení, YUV→RGB) u snímků s `color_trc`/`color_primaries`/`colorspace` = `reserved` („Unsupported input … trc:reserved“). Matroska demuxer hodnotu 0 z MKV (VideoReDo) propustí, dekodér H.264/HEVC ji z bitstreamu zahodí, proto se syntetický testovací soubor nedá snadno vyrobit; simuluje se filtrem `setparams=color_trc=3` nebo podvrženým `ffprobe`. Řešení: `color_fix` / `Get-ColorFix` přepíše `reserved` na `unknown` (2026-11-13).
+
+- `process_file "$f" || true` vypíná uvnitř `set -e`, takže chyba FFmpeg nezastavila zpracování a skript hlásil úspěch. Návratový kód příkazů uvnitř `process_file` je nutné kontrolovat ručně (2026-11-13).
 
 - macOS `awk` formátuje i čte čísla podle locale: pod `cs_CZ` vypsal `0,476780` a další porovnání to četlo jako 0. `fix-audio-offsets.sh` proto nastavuje `LC_NUMERIC=C` (`convert-for-tv.sh` nastavuje `LC_ALL`, takže se chyba projevila jen při samostatném spuštění) (2026-11-07).
 

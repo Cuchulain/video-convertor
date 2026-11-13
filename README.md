@@ -23,12 +23,12 @@ Skript kompatibilní stopu zkopíruje bez ztráty kvality. Kopírované video se
 
 ## Cílová zařízení
 
-Televizory se liší v tom, co v MP4 přehrají. Profil zařízení určuje kodek zvuku, které zvukové stopy lze zkopírovat, nejvyšší level H.264 pro kopii videa a nejvyšší rozlišení. Kvalitu dál určuje `--profile`; jeho datové toky jsou pro 1280 × 720 a zařízení s vyšším rozlišením je navýší (`video_kbps_percent`).
+Televizory se liší v tom, co v MP4 přehrají. Profil zařízení určuje kodek zvuku, které zvukové stopy lze zkopírovat, nejvyšší level H.264 pro kopii videa a nejvyšší rozlišení. Kvalitu dál určuje `--profile`; jeho datové toky jsou pro 1280 × 720 a zařízení s vyšším rozlišením je navýší (`video_kbps_percent`). Zařízení může také snížit modrou složku obrazu (`blue_percent`), když televizor svítí příliš do modra.
 
 | Zařízení | Rozlišení a datový tok videa | Zvuk | Kopie videa | Poznámka |
 |---|---|---|---|---|
 | `hyundai` (výchozí) | max. 1280 × 720, `standard` 2 000 kb/s | AC-3, max. 384 kb/s; kopie AC-3, MP3 | H.264 bez omezení levelu | původní nastavení |
-| `lg` | max. 1920 × 1080, 180 % (`standard` 3 600, `akcni` 4 500, `serialy` 2 880 kb/s) | AC-3, max. 384 kb/s; kopie AC-3, AAC, MP3 | H.264 do levelu 4.2 | LG 49LH6047 (webOS 3.0, Full HD), limity podle specifikace LG |
+| `lg` | max. 1920 × 1080, 180 % (`standard` 3 600, `akcni` 4 500, `serialy` 2 880 kb/s) | AC-3, max. 384 kb/s; kopie AC-3, AAC, MP3 | H.264 do levelu 4.2 | LG 49LH6047 (webOS 3.0, Full HD), limity podle specifikace LG; modrá složka na 50 % (opotřebované podsvícení), video se proto vždy překóduje |
 
 Full HD výstup je zhruba 1,8× větší (film na 107 minut ~3 GB). Na USB disku se systémem FAT32 je limit 4 GB na soubor, který může překročit film delší než asi 2,5 hodiny; NTFS toto omezení nemá.
 
@@ -36,6 +36,15 @@ Full HD výstup je zhruba 1,8× větší (film na 107 minut ~3 GB). Na USB disku
 ./scripts/convert-for-tv.sh --list-devices          # profily a výchozí zařízení
 ./scripts/convert-for-tv.sh --set-device lg         # uložit výchozí zařízení
 ./scripts/convert-for-tv.sh --device hyundai film.mkv   # jednorázově jiné zařízení
+```
+
+### Snížení modré
+
+Televizor s opotřebovanými LED diodami podsvícení svítí příliš do modra. `--blue N` (Windows `-Blue N`) ponechá modrou složku obrazu na N % (0–100), červená a zelená se nemění; upraví se i vypálené titulky. `100` úpravu vypne. Výchozí hodnotu určuje klíč `blue_percent` profilu zařízení (`lg` 50 %, ostatní 100 %). Se sníženou modrou se video vždy překóduje, nikdy nekopíruje.
+
+```bash
+./scripts/convert-for-tv.sh --device lg --blue 60 film.mkv    # méně výrazná úprava
+./scripts/convert-for-tv.sh --device lg --blue 100 film.mkv   # bez úpravy barev
 ```
 
 Windows: `-ListDevices`, `-SetDevice lg`, `-Device hyundai`. Přetažení videa na „Převést pro TV“ použije výchozí zařízení.

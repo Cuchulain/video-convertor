@@ -452,11 +452,12 @@ $script:ConfigDirectory = if ($env:APPDATA) {
 } else {
     Join-Path (Join-Path $HOME '.config') 'video-convertor'
 }
-$script:DeviceKeys = @('description', 'audio_codec', 'audio_kbps', 'audio_copy', 'h264_max_level', 'max_width', 'max_height', 'video_kbps_percent')
+$script:DeviceKeys = @('description', 'audio_codec', 'audio_kbps', 'audio_copy', 'h264_max_level', 'max_width', 'max_height', 'video_kbps_percent', 'blue_percent')
 # Chybějící klíč = výchozí hodnota (profil hyundai).
 $script:DeviceDefaults = @{
     description = ''; audio_codec = 'ac3'; audio_kbps = '384'; audio_copy = 'ac3 mp3'
     h264_max_level = ''; max_width = '1280'; max_height = '720'; video_kbps_percent = '100'
+    blue_percent = '100'
 }
 
 # Načte profily zařízení ze souboru do $Devices (název -> @{ klíč = hodnota }).
@@ -488,6 +489,31 @@ function Get-Devices {
     Read-DeviceFile $devices ([IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\devices.conf')))
     Read-DeviceFile $devices (Join-Path $script:ConfigDirectory 'devices.conf')
     return $devices
+}
+
+# Filtr snížení modré složky (TV s opotřebovanými LED svítí do modra), nebo
+# $null. Červená a zelená se nemění; FFmpeg převede obraz do RGB a zpět
+# (včetně 10 bitů pro hd10). Zpět výslovně do 4:2:0, jinak libx264 zvolí
+# 4:4:4, které profil High (ani TV) neumí. $Percent = modrá složka v %
+# (100 = beze změny), $TenBit = výstup v 10 bitech (hd10).
+function Get-BlueFilter([int] $Percent, [bool] $TenBit) {
+    if ($Percent -ge 100) { return $null }
+    $pixelFormat = if ($TenBit) { 'yuv420p10le' } else { 'yuv420p' }
+    return "colorchannelmixer=bb=$(([double]$Percent / 100).ToString('0.00', [Globalization.CultureInfo]::InvariantCulture)),format=$pixelFormat"
+}
+
+# Oprava neplatných údajů o barvách zdroje: hodnotu "reserved" (např. přenosová
+# charakteristika v MKV z VideoReDo) swscale odmítne při každém převodu
+# (zmenšení, RGB pro modrou) a konverze selže. Přepíše je na "unknown".
+# Vrací filtr setparams, nebo $null. $Stream = video stopa z ffprobe.
+function Get-ColorFix($Stream) {
+    $parts = @()
+    foreach ($pair in @(@('color_primaries', 'color_primaries'), @('color_transfer', 'color_trc'), @('color_space', 'colorspace'))) {
+        $property = $Stream.PSObject.Properties[$pair[0]]
+        if ($property -and "$($property.Value)" -like 'reserved*') { $parts += "$($pair[1])=unknown" }
+    }
+    if (-not $parts.Count) { return $null }
+    return "setparams=$($parts -join ':')"
 }
 
 # Hodnota klíče z uživatelské konfigurace, nebo ''.
@@ -539,7 +565,7 @@ function Show-Devices($Devices) {
 }
 
 # Ověří zařízení a vrátí @{ Name; AudioCodec; AudioKbps; AudioCopy; H264MaxLevel;
-# MaxWidth; MaxHeight; KbpsPercent }.
+# MaxWidth; MaxHeight; KbpsPercent; BluePercent }.
 function Get-Device($Devices, [string] $Name) {
     if (@($Devices.Keys) -cnotcontains $Name) {
         throw "Neznámé zařízení: $Name (povolené: $(@($Devices.Keys) -join ' '))"
@@ -551,10 +577,11 @@ function Get-Device($Devices, [string] $Name) {
     }
     if ($values['audio_codec'] -cnotin @('ac3', 'aac')) { throw "Zařízení ${Name}: audio_codec musí být ac3 nebo aac" }
     $level = if ($values['h264_max_level']) { $values['h264_max_level'] } else { '0' }
-    foreach ($number in @($values['audio_kbps'], $values['max_width'], $values['max_height'], $level, $values['video_kbps_percent'])) {
+    foreach ($number in @($values['audio_kbps'], $values['max_width'], $values['max_height'], $level, $values['video_kbps_percent'], $values['blue_percent'])) {
         if ($number -notmatch '^\d+$') { throw "Zařízení ${Name}: neplatná číselná hodnota '$number'" }
     }
     if ([int]$values['video_kbps_percent'] -lt 1) { throw "Zařízení ${Name}: video_kbps_percent musí být aspoň 1" }
+    if ([int]$values['blue_percent'] -gt 100) { throw "Zařízení ${Name}: blue_percent musí být 0-100" }
     return @{
         Name = $Name
         AudioCodec = $values['audio_codec']
@@ -564,5 +591,6 @@ function Get-Device($Devices, [string] $Name) {
         MaxWidth = [int]$values['max_width']
         MaxHeight = [int]$values['max_height']
         KbpsPercent = [int]$values['video_kbps_percent']
+        BluePercent = [int]$values['blue_percent']
     }
 }

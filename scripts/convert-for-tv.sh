@@ -80,6 +80,7 @@ CQ="60"   # constant quality pro hd10 (VideoToolbox -q:v, 0-100, vyšší = lep�
 AUDIO_OPT=""       # --audio N (relativní index a:N)
 AUDIO_LANG_OPT=""  # --audio-lang -> czech|slovak|foreign
 SUB_OPT=""         # --sub N | none | soubor
+BLUE_OPT=""        # --blue N; prázdné = podle zařízení (blue_percent)
 DEVICE=""          # --device; prázdné = výchozí z konfigurace, jinak hyundai
 LIST_DEVICES="0"   # --list-devices
 SET_DEVICE=""      # --set-device
@@ -109,6 +110,8 @@ Přepínače:
   --device NAME      cílové zařízení (viz --list-devices), výchozí z konfigurace
   --list-devices     vypsat profily zařízení a výchozí zařízení
   --set-device NAME  uložit výchozí zařízení do konfigurace a skončit
+  --blue N           ponechat modrou složku obrazu na N % (0-100; 100 = beze
+                     změny), výchozí podle zařízení (blue_percent)
   --cq N             constant quality pro hd10 (0-100, vyšší = lepší, výchozí 60)
   --threshold SEC    prah pro fix-audio-offsets.sh (výchozí 0.050)
   --outdir DIR       kam ukládat výstupy (výchozí: podadresář "tv-<zařízení>"
@@ -139,7 +142,7 @@ EOF
 # devices.conf (stejný název profilu přepíše jen uvedené klíče). Výchozí
 # zařízení je v $CONFIG_DIR/config (device=nazev). Stejný formát čte VideoTools.ps1.
 
-DEV_KEYS="description audio_codec audio_kbps audio_copy h264_max_level max_width max_height video_kbps_percent"
+DEV_KEYS="description audio_codec audio_kbps audio_copy h264_max_level max_width max_height video_kbps_percent blue_percent"
 
 # Ořízne mezery na začátku a konci. $1=text, výsledek v _TRIM.
 trim() {
@@ -224,6 +227,7 @@ dev_get() {
     max_width)   _DEV="1280" ;;
     max_height)  _DEV="720" ;;
     video_kbps_percent) _DEV="100" ;;
+    blue_percent) _DEV="100" ;;
     *)           _DEV="" ;;
   esac
 }
@@ -251,7 +255,7 @@ list_devices() {
 
 # Ověří, že zařízení existuje a má platné hodnoty, a nastaví DEV_AUDIO_CODEC,
 # DEV_AUDIO_KBPS, DEV_AUDIO_COPY, DEV_H264_MAX_LEVEL, DEV_MAX_W, DEV_MAX_H,
-# DEV_KBPS_PCT. $1=zařízení
+# DEV_KBPS_PCT, DEV_BLUE_PCT. $1=zařízení
 use_device() {
   local d="$1"
   if [[ -z "${DEV_CONF[$d.]+x}" ]]; then
@@ -265,17 +269,58 @@ use_device() {
   dev_get "$d" max_width;      DEV_MAX_W="$_DEV"
   dev_get "$d" max_height;     DEV_MAX_H="$_DEV"
   dev_get "$d" video_kbps_percent; DEV_KBPS_PCT="$_DEV"
+  dev_get "$d" blue_percent;   DEV_BLUE_PCT="$_DEV"
   case "$DEV_AUDIO_CODEC" in
     ac3|aac) ;;
     *) err "Zařízení $d: audio_codec musí být ac3 nebo aac"; exit 1 ;;
   esac
   local x
-  for x in "$DEV_AUDIO_KBPS" "$DEV_MAX_W" "$DEV_MAX_H" "${DEV_H264_MAX_LEVEL:-0}" "$DEV_KBPS_PCT"; do
+  for x in "$DEV_AUDIO_KBPS" "$DEV_MAX_W" "$DEV_MAX_H" "${DEV_H264_MAX_LEVEL:-0}" "$DEV_KBPS_PCT" "$DEV_BLUE_PCT"; do
     [[ "$x" =~ ^[0-9]+$ ]] || { err "Zařízení $d: neplatná číselná hodnota '$x'"; exit 1; }
   done
   if (( DEV_KBPS_PCT < 1 )); then
     err "Zařízení $d: video_kbps_percent musí být aspoň 1"; exit 1
   fi
+  if (( DEV_BLUE_PCT > 100 )); then
+    err "Zařízení $d: blue_percent musí být 0-100"; exit 1
+  fi
+}
+
+# Filtr snížení modré složky (TV s opotřebovanými LED svítí do modra), nebo
+# prázdné. Červená a zelená se nemění; FFmpeg převede obraz do RGB a zpět
+# (včetně 10 bitů pro hd10). Zpět výslovně do 4:2:0, jinak libx264 zvolí
+# 4:4:4, které profil High (ani TV) neumí. Výsledek v _BLUE.
+blue_filter() {
+  _BLUE=""
+  (( DEV_BLUE_PCT < 100 )) || return 0
+  local pf="yuv420p"
+  [[ "$PROFILE" != "hd10" ]] || pf="yuv420p10le"
+  _BLUE="colorchannelmixer=bb=$(( DEV_BLUE_PCT / 100 )).$(printf '%02d' $(( DEV_BLUE_PCT % 100 ))),format=$pf"
+}
+
+# Oprava neplatných údajů o barvách zdroje: hodnotu "reserved" (např. přenosová
+# charakteristika v MKV z VideoReDo) swscale odmítne při každém převodu
+# (zmenšení, RGB pro modrou) a konverze selže. Přepíše je na "unknown".
+# Výsledek v _CFIX (filtr setparams nebo prázdné). $1=file
+color_fix() {
+  local file="$1" line key val
+  local -a parts=()
+  _CFIX=""
+  while IFS='=' read -r key val; do
+    [[ "$val" == reserved* ]] || continue
+    case "$key" in
+      color_primaries) parts+=("color_primaries=unknown") ;;
+      color_transfer)  parts+=("color_trc=unknown") ;;
+      color_space)     parts+=("colorspace=unknown") ;;
+    esac
+  done < <(ffprobe -v error -select_streams V:0 \
+             -show_entries stream=color_primaries,color_transfer,color_space \
+             -of default=noprint_wrappers=1 "$file" 2>/dev/null || true)
+  if [[ ${#parts[@]} -gt 0 ]]; then
+    local IFS=:
+    _CFIX="setparams=${parts[*]}"
+  fi
+  return 0
 }
 
 # Level H.264 pro kódování: 3.1 stačí do 1280x720, větší obraz potřebuje 4.1.
@@ -560,6 +605,8 @@ decide_video() {
 
   # vypálení titulků -> vždy překódovat (uživatelská výjimka)
   [[ -z "$BURN" ]] || return 0
+  # úprava barev -> překódovat
+  (( DEV_BLUE_PCT >= 100 )) || return 0
 
   local w h codec pf
   w="$(probe1 "$file" V:0 stream=width)"
@@ -725,14 +772,19 @@ detect_crop() {
 
 # --- Konverze ---------------------------------------------------------------
 
-# Sestaví video filtr (crop -> scale -> ass). Nastaví globální VF.
-# $1=crop (může být prázdné) $2=sub_path (může být prázdné, ASCII-safe temp)
+# Sestaví video filtr (oprava barev -> crop -> scale -> ass -> modrá). Nastaví
+# globální VF. $1=crop (může být prázdné) $2=sub_path (může být prázdné,
+# ASCII-safe temp) $3=oprava barev (_CFIX, může být prázdné)
 build_vf() {
-  local crop="$1" sub="$2"
+  local crop="$1" sub="$2" cfix="${3:-}"
   local -a parts=()
+  [[ -z "$cfix" ]] || parts+=("$cfix")
   [[ -n "$crop" ]] && parts+=("$crop")
   parts+=("scale='min($DEV_MAX_W,iw)':'min($DEV_MAX_H,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2")
   [[ -n "$sub" ]] && parts+=("ass=f=$sub")
+  # až po titulcích, aby se upravily i ony
+  blue_filter
+  [[ -z "$_BLUE" ]] || parts+=("$_BLUE")
   local IFS=,
   VF="${parts[*]}"
 }
@@ -911,6 +963,9 @@ process_file() {
   fi
   OUTPUTS_DONE[$output]="$input"
   log "Profil: $PROFILE, zařízení: $DEVICE  ->  výstup: $output"
+  if (( DEV_BLUE_PCT < 100 )); then
+    log "Barvy: modrá složka na $DEV_BLUE_PCT % (video se vždy překóduje)"
+  fi
 
   if [[ "$DRY_RUN" == "1" ]]; then
     # rozhodnutí bez znalosti ořezu (ten se zjistí až při konverzi)
@@ -989,6 +1044,11 @@ process_file() {
   else
     log "Video: překódovat"
   fi
+  _CFIX=""
+  if [[ "$VIDEO_COPY" != "1" ]]; then
+    color_fix "$input"
+    [[ -z "$_CFIX" ]] || log "Barvy: neplatné údaje o barvách ve zdroji (reserved) -> $_CFIX"
+  fi
 
   CMD=(ffmpeg -hide_banner -y)
   # AVI často nemá časové značky pro kopírování videa do MP4 -> dopočítat
@@ -1024,7 +1084,10 @@ process_file() {
 
   if [[ "$BURN" == "image" ]]; then
     build_vf "" ""
-    CMD+=(-filter_complex "[0:V:0][0:s:${TRK_REL[SEL_SUB_POS]}]overlay=eof_action=pass,${VF}[vout]" -map "[vout]")
+    # oprava barev už před overlay (ten převádí titulky do formátu videa)
+    local vin="[0:V:0]"
+    [[ -z "$_CFIX" ]] || vin="[0:V:0]${_CFIX}[vfix];[vfix]"
+    CMD+=(-filter_complex "${vin}[0:s:${TRK_REL[SEL_SUB_POS]}]overlay=eof_action=pass,${VF}[vout]" -map "[vout]")
   else
     CMD+=(-map 0:V:0)
   fi
@@ -1039,7 +1102,7 @@ process_file() {
   done
 
   if [[ "$VIDEO_COPY" != "1" && "$BURN" != "image" ]]; then
-    build_vf "$crop" "$sub_safe"
+    build_vf "$crop" "$sub_safe" "$_CFIX"
     CMD+=(-vf "$VF")
   fi
   append_video_opts "$input"
@@ -1079,7 +1142,14 @@ process_file() {
   CMD+=(-map_chapters -1 -map_metadata 0 -movflags +faststart "$output")
 
   log "Spouštím konverzi..."
-  "${CMD[@]}"
+  # process_file běží s "|| true" (set -e tu neplatí) -> kontrolovat ručně
+  if ! "${CMD[@]}"; then
+    rm -f "$output"
+    err "Konverze selhala: $input"
+    cleanup
+    trap - RETURN
+    return 1
+  fi
   log "Konverze hotová: $output"
 
   cleanup
@@ -1128,6 +1198,7 @@ main() {
       --outdir)  [[ $# -ge 2 ]] || { err "Chybí hodnota za --outdir"; exit 1; }; OUTDIR="$2"; shift 2 ;;
       --audio)   [[ $# -ge 2 ]] || { err "Chybí hodnota za --audio"; exit 1; }; AUDIO_OPT="$2"; shift 2 ;;
       --audio-lang) [[ $# -ge 2 ]] || { err "Chybí hodnota za --audio-lang"; exit 1; }; AUDIO_LANG_OPT="$2"; shift 2 ;;
+      --blue)    [[ $# -ge 2 ]] || { err "Chybí hodnota za --blue"; exit 1; }; BLUE_OPT="$2"; shift 2 ;;
       --sub)     [[ $# -ge 2 ]] || { err "Chybí hodnota za --sub"; exit 1; }; SUB_OPT="$2"; shift 2 ;;
       --keep-ass)      DO_EXTRACT="1"; shift ;;
       --no-extract)    DO_EXTRACT="0"; shift ;;  # zastaralé, výchozí chování
@@ -1157,6 +1228,12 @@ main() {
     DEVICE="$_DEV"
   fi
   use_device "$DEVICE"
+  if [[ -n "$BLUE_OPT" ]]; then
+    if [[ ! "$BLUE_OPT" =~ ^[0-9]{1,3}$ ]] || (( 10#$BLUE_OPT > 100 )); then
+      err "--blue očekává číslo 0-100 (procenta modré složky), např. --blue 60"; exit 1
+    fi
+    DEV_BLUE_PCT="$((10#$BLUE_OPT))"
+  fi
 
   require_cmd ffmpeg
   require_cmd ffprobe

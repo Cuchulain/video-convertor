@@ -9,3 +9,4 @@ video-convertor-windows.zip
 
 # výstupy build/build-windows.sh
 dist/
+.kata.local.toml

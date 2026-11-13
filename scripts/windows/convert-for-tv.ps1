@@ -10,6 +10,9 @@ param(
     # Vypsat profily zařízení / uložit výchozí zařízení do konfigurace a skončit.
     [switch] $ListDevices,
     [string] $SetDevice,
+    # Modrá složka obrazu v % (0-100; 100 = beze změny), výchozí podle zařízení.
+    [ValidateRange(0, 100)]
+    [int] $Blue = -1,
     [ValidateRange(0, 100)]
     [int] $Cq = 60,
     [ValidateSet('Auto', 'Nvidia', 'Cpu')]
@@ -44,6 +47,8 @@ if ($SetDevice) {
     exit 0
 }
 $targetDevice = Get-Device $devices $(if ($Device) { $Device } else { Get-DefaultDevice })
+if ($PSBoundParameters.ContainsKey('Blue')) { $targetDevice.BluePercent = $Blue }
+$blueFilter = Get-BlueFilter $targetDevice.BluePercent ($Profile -eq 'hd10')
 if (-not $Path) { throw 'Chybí vstupní soubory nebo složky (např. convert-for-tv.cmd "D:\Video\film.mkv").' }
 
 Assert-VideoTools
@@ -438,10 +443,12 @@ foreach ($file in (Get-MediaFiles $Path -SkipOutputDirectories)) {
     }
     $outputsDone[$outputKey] = $file
     Write-Host "Profil: $Profile, zařízení: $($targetDevice.Name) -> $output"
+    if ($blueFilter) { Write-Host "Barvy: modrá složka na $($targetDevice.BluePercent) % (video se vždy překóduje)" }
     if ($DryRun) { Write-Host "Hardware: $videoBackend`n(dry-run: extrakce, cropdetect a konverze přeskočeny)"; continue }
 
     New-Item -ItemType Directory -Path $targetDirectory -Force | Out-Null
     $temporaryDirectory = $null
+    $converted = $true
     try {
         # ASCII-safe ASS v dočasném adresáři kvůli escapování v ass filtru
         $safeSubtitle = $null
@@ -480,7 +487,8 @@ foreach ($file in (Get-MediaFiles $Path -SkipOutputDirectories)) {
         if ($crop -and $crop -match '^crop=(\d+):(\d+):(\d+):(\d+)$') {
             $realCrop = ([int]$Matches[1] -ne [int]$video.width -or [int]$Matches[2] -ne [int]$video.height -or [int]$Matches[3] -ne 0 -or [int]$Matches[4] -ne 0)
         }
-        $videoCopy = -not $burn -and -not $realCrop -and [int]$video.width -le $targetDevice.MaxWidth -and [int]$video.height -le $targetDevice.MaxHeight
+        # vypálení titulků nebo úprava barev -> překódovat
+        $videoCopy = -not $burn -and -not $blueFilter -and -not $realCrop -and [int]$video.width -le $targetDevice.MaxWidth -and [int]$video.height -le $targetDevice.MaxHeight
         if ($Profile -eq 'hd10') {
             $videoCopy = $videoCopy -and $video.codec_name -eq 'hevc' -and $tenBit
         } else {
@@ -520,19 +528,28 @@ foreach ($file in (Get-MediaFiles $Path -SkipOutputDirectories)) {
         }
 
         $filters = @()
+        $colorFix = $null
         if (-not $videoCopy) {
+            $colorFix = Get-ColorFix $video
+            if ($colorFix) { Write-Host "Barvy: neplatné údaje o barvách ve zdroji (reserved) -> $colorFix" }
+            # u obrazových titulků až na vstupu overlay (viz níže)
+            if ($colorFix -and $burn -ne 'image') { $filters += $colorFix }
             if ($crop) { $filters += $crop }
             $filters += "scale='min($($targetDevice.MaxWidth),iw)':'min($($targetDevice.MaxHeight),ih)':force_original_aspect_ratio=decrease:force_divisible_by=2"
             if ($safeSubtitle) {
                 $escaped = $safeSubtitle.Replace('\', '/').Replace(':', '\:').Replace("'", "\'")
                 $filters += "ass=filename='$escaped'"
             }
-            if ($videoBackend -eq 'Nvidia') {
+            # až po titulcích, aby se upravily i ony
+            if ($blueFilter) { $filters += $blueFilter }
+            if ($videoBackend -eq 'Nvidia' -and -not $blueFilter) {
                 if ($Profile -eq 'hd10') { $filters += 'format=p010le' } else { $filters += 'format=yuv420p' }
             }
         }
         if ($burn -eq 'image') {
-            $args += @('-filter_complex', "[0:V:0][0:s:$($subtitle.Track.Relative)]overlay=eof_action=pass,$($filters -join ',')[vout]", '-map', '[vout]')
+            # oprava barev už před overlay (ten převádí titulky do formátu videa)
+            $videoInput = if ($colorFix) { "[0:V:0]$colorFix[vfix];[vfix]" } else { '[0:V:0]' }
+            $args += @('-filter_complex', "${videoInput}[0:s:$($subtitle.Track.Relative)]overlay=eof_action=pass,$($filters -join ',')[vout]", '-map', '[vout]')
         } else {
             $args += @('-map', '0:V:0')
         }
@@ -602,14 +619,21 @@ foreach ($file in (Get-MediaFiles $Path -SkipOutputDirectories)) {
             }
         }
         $args += @('-map_chapters', '-1', '-map_metadata', '0', '-movflags', '+faststart', $output)
-        Invoke-Native ffmpeg $args
-        Write-Host "Konverze hotová: $output"
+        try {
+            Invoke-Native ffmpeg $args
+        } catch {
+            if (Test-Path -LiteralPath $output) { Remove-Item -LiteralPath $output -Force }
+            Write-Warning "Konverze selhala: $file ($_)"
+            $converted = $false
+        }
+        if ($converted) { Write-Host "Konverze hotová: $output" }
     } finally {
         if ($temporaryDirectory -and (Test-Path -LiteralPath $temporaryDirectory)) {
             Remove-Item -LiteralPath $temporaryDirectory -Recurse -Force
         }
     }
 
+    if (-not $converted) { continue }
     if (-not $NoFixOffset) {
         & "$PSScriptRoot\fix-audio-offsets.ps1" -Threshold $Threshold -Path $output
         if (-not $?) { Write-Warning "Oprava audio offsetu selhala pro: $output" }
