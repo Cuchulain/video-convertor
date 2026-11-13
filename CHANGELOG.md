@@ -2,7 +2,7 @@
 
 Formát vychází z [Keep a Changelog](https://keepachangelog.com/cs/1.1.0/), verze podle souboru `VERSION`.
 
-## [Nevydáno]
+## [0.4.0] – 2026-11-13
 
 ### Přidáno
 - Snížení modré složky obrazu pro TV, které svítí do modra (opotřebované LED podsvícení): klíč `blue_percent` v profilech zařízení a přepínač `--blue N` / `-Blue N` (podle `blue_reducer.py`, filtr `colorchannelmixer`). Upraví i vypálené titulky; video se pak vždy překóduje.
