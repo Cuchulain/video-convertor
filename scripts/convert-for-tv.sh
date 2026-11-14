@@ -88,6 +88,7 @@ CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/video-convertor"
 declare -A DEV_CONF=()   # "zařízení.klíč" -> hodnota z devices.conf
 DEV_NAMES=()             # zařízení v pořadí načtení
 declare -A OUTPUTS_DONE=()   # výstup -> vstup, kvůli kolizím názvů v jednom běhu
+FAILED_FILES=()              # nezpracované soubory -> souhrn a návratový kód 1
 
 # shellcheck source=lib/tracks.sh
 source "$SCRIPT_DIR/lib/tracks.sh"
@@ -1142,7 +1143,7 @@ process_file() {
   CMD+=(-map_chapters -1 -map_metadata 0 -movflags +faststart "$output")
 
   log "Spouštím konverzi..."
-  # process_file běží s "|| true" (set -e tu neplatí) -> kontrolovat ručně
+  # process_file běží s "||" (set -e tu neplatí) -> kontrolovat ručně
   if ! "${CMD[@]}"; then
     rm -f "$output"
     err "Konverze selhala: $input"
@@ -1177,11 +1178,11 @@ process_path() {
     local f
     for f in "$p"/*; do
       [[ -f "$f" ]] && is_media_file "$f" || continue
-      process_file "$f" || true
+      process_file "$f" || FAILED_FILES+=("$f")
     done
     shopt -u nullglob
   else
-    process_file "$p" || true
+    process_file "$p" || FAILED_FILES+=("$p")
   fi
 }
 
@@ -1290,6 +1291,15 @@ main() {
   for p in "${inputs[@]}"; do
     process_path "$p"
   done
+
+  if [[ ${#FAILED_FILES[@]} -gt 0 ]]; then
+    printf '\n' >&2
+    err "Nezpracované soubory (${#FAILED_FILES[@]}):"
+    for p in "${FAILED_FILES[@]}"; do
+      printf '  %s\n' "$p" >&2
+    done
+    exit 1
+  fi
 }
 
 main "$@"

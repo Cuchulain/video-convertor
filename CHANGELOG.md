@@ -2,6 +2,11 @@
 
 Formát vychází z [Keep a Changelog](https://keepachangelog.com/cs/1.1.0/), verze podle souboru `VERSION`.
 
+## [Nevydáno]
+
+### Změněno
+- Po dávce se vypíše seznam nezpracovaných souborů a skript skončí s návratovým kódem 1, pokud některý soubor selhal (dosud vždy 0). Windows verze navíc při chybě ffprobe nebo kolizi výstupu se vstupem už neukončí celou dávku, ale pokračuje dalším souborem (stejně jako bash).
+
 ## [0.4.0] – 2026-11-13
 
 ### Přidáno

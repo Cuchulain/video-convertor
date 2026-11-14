@@ -238,6 +238,7 @@ Pokud byl jazyk stopy určen z názvu a tag zdroje je jiný, výstupní stopa do
 - Konverze může podle délky videa a výkonu CPU trvat dlouho, zejména HEVC Main10 na Linuxu a na Windows s GTX 980M.
 - `fix-audio-offsets` dočasně přejmenuje vstup na `*.original.*`; po úspěchu zálohu odstraní, při chybě ji obnoví.
 - Záporné audio offsety se pouze ohlásí a neupravují.
+- Když převod některého souboru selže (FFmpeg skončí chybou, soubor nemá zvuk, neexistuje…), neúplný výstup se smaže a dávka pokračuje dalším souborem. Na konci se vypíše seznam nezpracovaných souborů a skript skončí s návratovým kódem 1 (jinak 0), takže jde použít ve skriptech a plánovaných úlohách.
 - Existující cílový MP4 přepíše FFmpeg bez dotazu. Nejdřív lze použít `--dry-run` na Linuxu/macOS nebo `-DryRun` na Windows.
 - `--cq`/`-Cq` má rozsah 0–100; vyšší číslo znamená vyšší kvalitu. Hodnota se interně převádí na CRF/CQ použitého HEVC enkodéru.
 

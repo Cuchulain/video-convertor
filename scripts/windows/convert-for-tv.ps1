@@ -375,6 +375,11 @@ $videoBackend = Resolve-VideoBackend $Hardware $Profile
 Write-Host "Kódování videa: $videoBackend (požadováno: $Hardware)"
 
 $outputsDone = @{}
+# nezpracované soubory -> souhrn a návratový kód 1
+$failedFiles = [System.Collections.Generic.List[string]]::new()
+foreach ($item in $Path) {
+    if ($item -notmatch '[*?]' -and -not (Test-Path -LiteralPath $item)) { $failedFiles.Add($item) }
+}
 foreach ($file in (Get-MediaFiles $Path -SkipOutputDirectories)) {
     Write-Host "`n=== $file ==="
     if (-not $DryRun -and $KeepAss -and $Profile -ne 'hd10') {
@@ -382,14 +387,20 @@ foreach ($file in (Get-MediaFiles $Path -SkipOutputDirectories)) {
         if (-not $?) { Write-Warning "Extrakce titulků selhala pro: $file" }
     }
 
-    $probe = Get-Probe $file -CountPackets
+    try {
+        $probe = Get-Probe $file -CountPackets
+    } catch {
+        Write-Warning "ffprobe selhal, přeskakuji: $file"
+        $failedFiles.Add($file)
+        continue
+    }
     # první video bez obalu/miniatury (attached_pic), které mají MP4/MOV/M4V
     $video = @($probe.streams | Where-Object { $_.codec_type -eq 'video' -and -not (Get-Disposition $_ 'attached_pic') })[0]
-    if (-not $video) { Write-Warning 'Soubor nemá video stopu; přeskakuji.'; continue }
+    if (-not $video) { Write-Warning 'Soubor nemá video stopu; přeskakuji.'; $failedFiles.Add($file); continue }
     $tracks = Get-TrackInfo $probe $file
     $duration = Get-ProbeDuration $probe
     $audioChoice = Select-Audio $tracks
-    if (-not $audioChoice) { Write-Warning 'Soubor nemá audio stopu; přeskakuji.'; continue }
+    if (-not $audioChoice) { Write-Warning 'Soubor nemá audio stopu; přeskakuji.'; $failedFiles.Add($file); continue }
     $subtitle = Select-Subtitle $tracks $audioChoice $file $duration
 
     # Obrazové titulky ze souboru (VobSub .idx/.sub) zatím neumíme použít.
@@ -434,11 +445,16 @@ foreach ($file in (Get-MediaFiles $Path -SkipOutputDirectories)) {
     $directory = [IO.Path]::GetDirectoryName($file)
     $targetDirectory = if ($OutDir) { [IO.Path]::GetFullPath($OutDir) } else { Join-Path $directory "tv-$($targetDevice.Name)" }
     $output = Join-Path $targetDirectory "$([IO.Path]::GetFileNameWithoutExtension($file)).mp4"
-    if ([IO.Path]::GetFullPath($output) -eq [IO.Path]::GetFullPath($file)) { throw "Výstup by přepsal vstup: $output" }
+    if ([IO.Path]::GetFullPath($output) -eq [IO.Path]::GetFullPath($file)) {
+        Write-Warning "Výstup by přepsal vstup: $output"
+        $failedFiles.Add($file)
+        continue
+    }
     # např. film.avi a film.mkv ve stejné složce -> stejný tv-<zařízení>\film.mp4
     $outputKey = [IO.Path]::GetFullPath($output).ToLowerInvariant()
     if ($outputsDone.ContainsKey($outputKey)) {
         Write-Warning "Výstup $output už v tomto běhu vznikl z $($outputsDone[$outputKey]), přeskakuji: $file"
+        $failedFiles.Add($file)
         continue
     }
     $outputsDone[$outputKey] = $file
@@ -633,9 +649,15 @@ foreach ($file in (Get-MediaFiles $Path -SkipOutputDirectories)) {
         }
     }
 
-    if (-not $converted) { continue }
+    if (-not $converted) { $failedFiles.Add($file); continue }
     if (-not $NoFixOffset) {
         & "$PSScriptRoot\fix-audio-offsets.ps1" -Threshold $Threshold -Path $output
         if (-not $?) { Write-Warning "Oprava audio offsetu selhala pro: $output" }
     }
+}
+
+if ($failedFiles.Count) {
+    Write-Warning "Nezpracované soubory ($($failedFiles.Count)):"
+    foreach ($item in $failedFiles) { Write-Host "  $item" }
+    exit 1
 }
