@@ -6,6 +6,7 @@ Plánované a zvažované úpravy. Hotové věci se přesouvají do [CHANGELOG.m
 
 - [ ] Profil `lg` ve Full HD na TV: přehrání a vzhled obrazu při 180 % datového toku (případně doladit procento).
 - [ ] Snížení modré na LG: zda 50 % (`blue_percent`) vyrovná barvy, nebo je lepší jiná hodnota (synův skript uvádí i 60 %).
+- [ ] Rozdělení na části (`max_file_mb`) na LG: přehrání částí z flash disku s FAT32, plynulý začátek každé části.
 
 - [ ] Vypalování obrazových titulků PGS/VobSub ze zdroje přes overlay (zatím netestováno, syntetický PGS nejde vyrobit).
 - [ ] MP4/MOV/M4V s obalem filmu jako první video stopou (výběr `V:0`).

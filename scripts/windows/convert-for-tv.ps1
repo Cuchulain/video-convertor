@@ -13,6 +13,10 @@ param(
     # Modrá složka obrazu v % (0-100; 100 = beze změny), výchozí podle zařízení.
     [ValidateRange(0, 100)]
     [int] $Blue = -1,
+    # Výstup větší než N MB (MiB) rozdělit na části "<název> - N. část.mp4"
+    # (0 = nedělit), výchozí podle zařízení (max_file_mb).
+    [ValidateRange(0, 9999999)]
+    [int] $MaxSize = -1,
     [ValidateRange(0, 100)]
     [int] $Cq = 60,
     [ValidateSet('Auto', 'Nvidia', 'Cpu')]
@@ -48,6 +52,7 @@ if ($SetDevice) {
 }
 $targetDevice = Get-Device $devices $(if ($Device) { $Device } else { Get-DefaultDevice })
 if ($PSBoundParameters.ContainsKey('Blue')) { $targetDevice.BluePercent = $Blue }
+if ($PSBoundParameters.ContainsKey('MaxSize')) { $targetDevice.MaxFileMb = $MaxSize }
 $blueFilter = Get-BlueFilter $targetDevice.BluePercent ($Profile -eq 'hd10')
 if (-not $Path) { throw 'Chybí vstupní soubory nebo složky (např. convert-for-tv.cmd "D:\Video\film.mkv").' }
 
@@ -284,6 +289,96 @@ function Get-TimestampFix([string] $File, $VideoStream) {
     return @{ Scale = $rateNum * $factor; Step = $rateDen * $factor }
 }
 
+# První klíčový snímek videa v čase >= $Time (s), nebo $null (do konce souboru
+# žádný není).
+function Get-NextKeyframe([string] $File, [double] $Time) {
+    $invariant = [Globalization.CultureInfo]::InvariantCulture
+    # read_intervals skočí na klíčový snímek před časem, odtud stačí pár sekund
+    $interval = "$($Time.ToString('0.000', $invariant))%+30"
+    foreach ($line in @(& ffprobe -v error -select_streams V:0 -read_intervals $interval -show_entries packet=pts_time,flags -of csv=p=0 $File 2>$null)) {
+        $fields = "$line".Split(',')
+        $value = 0.0
+        if ($fields.Count -lt 2 -or $fields[1] -notlike '*K*') { continue }
+        if (-not [double]::TryParse($fields[0], [Globalization.NumberStyles]::Float, $invariant, [ref]$value)) { continue }
+        if ($value -ge $Time) { return $value }
+    }
+    return $null
+}
+
+# Rozdělí výstup větší než $LimitMb (MiB) na části "<název> - N. část.mp4"
+# (FAT32 na flash disku má limit 4 GB). Řeže se bez překódování na klíčových
+# snímcích; každá část začíná v čase 0 bez prázdných úseků v edit listu a má
+# index na začátku (faststart), jinak ji TV nemusí přehrát. Části mají
+# podobnou délku; když některá limit přesto překročí, zkusí se o část víc.
+# Po úspěchu se celý výstup smaže. Vrací $false při chybě ($LimitMb 0 = nedělit).
+function Split-Output([string] $File, [int] $LimitMb) {
+    if ($LimitMb -le 0) { return $true }
+    $invariant = [Globalization.CultureInfo]::InvariantCulture
+    $limit = [long]$LimitMb * 1048576
+    $size = (Get-Item -LiteralPath $File).Length
+    if ($size -le $limit) { return $true }
+    $duration = 0.0
+    $durationText = "$(@(& ffprobe -v error -show_entries format=duration -of default=nw=1:nk=1 $File 2>$null)[0])"
+    if (-not [double]::TryParse($durationText, [Globalization.NumberStyles]::Float, $invariant, [ref]$duration) -or $duration -le 0) {
+        Write-Warning "Neznámá délka videa: $File"
+        return $false
+    }
+    $base = Join-Path ([IO.Path]::GetDirectoryName($File)) ([IO.Path]::GetFileNameWithoutExtension($File))
+    # 5% rezerva: datový tok se v průběhu filmu mění
+    $parts = [int][Math]::Floor(([Math]::Floor($size * 100 / 95) + $limit - 1) / $limit)
+    Write-Host "Výstup má $([Math]::Floor($size / 1048576)) MB (limit $LimitMb MB), dělím na části..."
+    while ($parts -le 99) {
+        # zbytky dřívějšího dělení stejného výstupu
+        for ($i = 1; $i -le 99; $i++) {
+            foreach ($stale in @("$base - $i. část.mp4", "$base - $($i.ToString('00')). část.mp4")) {
+                if (Test-Path -LiteralPath $stale) { Remove-Item -LiteralPath $stale -Force }
+            }
+        }
+        $cuts = @()
+        for ($i = 1; $i -lt $parts; $i++) {
+            $key = Get-NextKeyframe $File ([Math]::Round($duration * $i / $parts, 3))
+            # dlouhý interval klíčových snímků -> dva řezy na stejném místě
+            if ($null -ne $key -and ($cuts.Count -eq 0 -or $key -gt $cuts[-1])) { $cuts += $key }
+        }
+        $files = @()
+        $fits = $true
+        $start = $null
+        for ($i = 0; $i -le $cuts.Count; $i++) {
+            $end = if ($i -lt $cuts.Count) { $cuts[$i] } else { $null }
+            # od 10 částí s nulami, aby se v TV řadily správně (01, 02, ... 10)
+            $part = "$base - $(($i + 1).ToString().PadLeft("$parts".Length, '0')). část.mp4"
+            $ffmpegArgs = @('-hide_banner', '-v', 'error', '-y')
+            if ($null -ne $start) { $ffmpegArgs += @('-ss', $start.ToString('0.000000', $invariant)) }
+            $ffmpegArgs += @('-i', $File)
+            if ($null -ne $end) {
+                $from = if ($null -ne $start) { $start } else { 0.0 }
+                $ffmpegArgs += @('-t', ($end - $from).ToString('0.000000', $invariant))
+            }
+            $ffmpegArgs += @('-map', '0', '-c', 'copy', '-map_metadata', '0', '-movflags', '+faststart', $part)
+            $files += $part
+            try {
+                Invoke-Native ffmpeg $ffmpegArgs
+            } catch {
+                foreach ($item in $files) { if (Test-Path -LiteralPath $item) { Remove-Item -LiteralPath $item -Force } }
+                Write-Warning "$_"
+                return $false
+            }
+            if ((Get-Item -LiteralPath $part).Length -gt $limit) { $fits = $false }
+            $start = $end
+        }
+        if ($fits) {
+            Remove-Item -LiteralPath $File -Force
+            foreach ($item in $files) { Write-Host "Část: $item ($([Math]::Floor((Get-Item -LiteralPath $item).Length / 1048576)) MB)" }
+            return $true
+        }
+        foreach ($item in $files) { Remove-Item -LiteralPath $item -Force }
+        $parts++
+        Write-Host "Některá část je větší než limit, zkouším počet částí: $parts"
+    }
+    Write-Warning "Výstup nejde rozdělit na části do $LimitMb MB: $File"
+    return $false
+}
+
 # Cílový video bitrate profilu v kbps ($null pro hd10), přepočtený podle
 # video_kbps_percent zařízení (hodnoty profilů jsou pro 1280x720).
 function Get-TargetVideoKbps([string] $Name) {
@@ -460,6 +555,7 @@ foreach ($file in (Get-MediaFiles $Path -SkipOutputDirectories)) {
     $outputsDone[$outputKey] = $file
     Write-Host "Profil: $Profile, zařízení: $($targetDevice.Name) -> $output"
     if ($blueFilter) { Write-Host "Barvy: modrá složka na $($targetDevice.BluePercent) % (video se vždy překóduje)" }
+    if ($targetDevice.MaxFileMb -gt 0) { Write-Host "Velikost: výstup nad $($targetDevice.MaxFileMb) MB se rozdělí na části" }
     if ($DryRun) { Write-Host "Hardware: $videoBackend`n(dry-run: extrakce, cropdetect a konverze přeskočeny)"; continue }
 
     New-Item -ItemType Directory -Path $targetDirectory -Force | Out-Null
@@ -653,6 +749,12 @@ foreach ($file in (Get-MediaFiles $Path -SkipOutputDirectories)) {
     if (-not $NoFixOffset) {
         & "$PSScriptRoot\fix-audio-offsets.ps1" -Threshold $Threshold -Path $output
         if (-not $?) { Write-Warning "Oprava audio offsetu selhala pro: $output" }
+    }
+
+    # rozdělení na části (limit souboru na flash disku)
+    if (-not (Split-Output $output $targetDevice.MaxFileMb)) {
+        Write-Warning "Rozdělení na části selhalo, celý výstup ponechán: $output"
+        $failedFiles.Add($file)
     }
 }
 

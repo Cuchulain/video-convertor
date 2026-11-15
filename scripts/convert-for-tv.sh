@@ -81,6 +81,7 @@ AUDIO_OPT=""       # --audio N (relativní index a:N)
 AUDIO_LANG_OPT=""  # --audio-lang -> czech|slovak|foreign
 SUB_OPT=""         # --sub N | none | soubor
 BLUE_OPT=""        # --blue N; prázdné = podle zařízení (blue_percent)
+MAX_SIZE_OPT=""    # --max-size MB; prázdné = podle zařízení (max_file_mb)
 DEVICE=""          # --device; prázdné = výchozí z konfigurace, jinak hyundai
 LIST_DEVICES="0"   # --list-devices
 SET_DEVICE=""      # --set-device
@@ -113,6 +114,9 @@ Přepínače:
   --set-device NAME  uložit výchozí zařízení do konfigurace a skončit
   --blue N           ponechat modrou složku obrazu na N % (0-100; 100 = beze
                      změny), výchozí podle zařízení (blue_percent)
+  --max-size MB      výstup větší než MB (MiB) rozdělit na části
+                     "<název> - N. část.mp4" (0 = nedělit), výchozí podle
+                     zařízení (max_file_mb)
   --cq N             constant quality pro hd10 (0-100, vyšší = lepší, výchozí 60)
   --threshold SEC    prah pro fix-audio-offsets.sh (výchozí 0.050)
   --outdir DIR       kam ukládat výstupy (výchozí: podadresář "tv-<zařízení>"
@@ -143,7 +147,7 @@ EOF
 # devices.conf (stejný název profilu přepíše jen uvedené klíče). Výchozí
 # zařízení je v $CONFIG_DIR/config (device=nazev). Stejný formát čte VideoTools.ps1.
 
-DEV_KEYS="description audio_codec audio_kbps audio_copy h264_max_level max_width max_height video_kbps_percent blue_percent"
+DEV_KEYS="description audio_codec audio_kbps audio_copy h264_max_level max_width max_height video_kbps_percent blue_percent max_file_mb"
 
 # Ořízne mezery na začátku a konci. $1=text, výsledek v _TRIM.
 trim() {
@@ -256,7 +260,7 @@ list_devices() {
 
 # Ověří, že zařízení existuje a má platné hodnoty, a nastaví DEV_AUDIO_CODEC,
 # DEV_AUDIO_KBPS, DEV_AUDIO_COPY, DEV_H264_MAX_LEVEL, DEV_MAX_W, DEV_MAX_H,
-# DEV_KBPS_PCT, DEV_BLUE_PCT. $1=zařízení
+# DEV_KBPS_PCT, DEV_BLUE_PCT, DEV_MAX_FILE_MB. $1=zařízení
 use_device() {
   local d="$1"
   if [[ -z "${DEV_CONF[$d.]+x}" ]]; then
@@ -271,12 +275,13 @@ use_device() {
   dev_get "$d" max_height;     DEV_MAX_H="$_DEV"
   dev_get "$d" video_kbps_percent; DEV_KBPS_PCT="$_DEV"
   dev_get "$d" blue_percent;   DEV_BLUE_PCT="$_DEV"
+  dev_get "$d" max_file_mb;    DEV_MAX_FILE_MB="${_DEV:-0}"
   case "$DEV_AUDIO_CODEC" in
     ac3|aac) ;;
     *) err "Zařízení $d: audio_codec musí být ac3 nebo aac"; exit 1 ;;
   esac
   local x
-  for x in "$DEV_AUDIO_KBPS" "$DEV_MAX_W" "$DEV_MAX_H" "${DEV_H264_MAX_LEVEL:-0}" "$DEV_KBPS_PCT" "$DEV_BLUE_PCT"; do
+  for x in "$DEV_AUDIO_KBPS" "$DEV_MAX_W" "$DEV_MAX_H" "${DEV_H264_MAX_LEVEL:-0}" "$DEV_KBPS_PCT" "$DEV_BLUE_PCT" "$DEV_MAX_FILE_MB"; do
     [[ "$x" =~ ^[0-9]+$ ]] || { err "Zařízení $d: neplatná číselná hodnota '$x'"; exit 1; }
   done
   if (( DEV_KBPS_PCT < 1 )); then
@@ -967,6 +972,9 @@ process_file() {
   if (( DEV_BLUE_PCT < 100 )); then
     log "Barvy: modrá složka na $DEV_BLUE_PCT % (video se vždy překóduje)"
   fi
+  if (( DEV_MAX_FILE_MB > 0 )); then
+    log "Velikost: výstup nad $DEV_MAX_FILE_MB MB se rozdělí na části"
+  fi
 
   if [[ "$DRY_RUN" == "1" ]]; then
     # rozhodnutí bez znalosti ořezu (ten se zjistí až při konverzi)
@@ -1161,6 +1169,94 @@ process_file() {
     "$SCRIPT_DIR/fix-audio-offsets.sh" --threshold "$THRESHOLD" "$output" \
       || warn "fix-audio-offsets.sh selhal pro $output"
   fi
+
+  # 5) rozdělení na části (limit souboru na flash disku)
+  if ! split_output "$output"; then
+    err "Rozdělení na části selhalo, celý výstup ponechán: $output"
+    return 1
+  fi
+}
+
+# První klíčový snímek videa v čase >= $2 (s). Výsledek v _KEY (čas v s,
+# prázdné = do konce souboru žádný není). $1=soubor $2=čas
+next_keyframe() {
+  local packets
+  # read_intervals skočí na klíčový snímek před časem $2, odtud stačí pár sekund
+  packets="$(ffprobe -v error -select_streams V:0 -read_intervals "$2%+30" \
+               -show_entries packet=pts_time,flags -of csv=p=0 "$1" 2>/dev/null || true)"
+  _KEY="$(awk -F, -v t="$2" '$2 ~ /K/ && $1 + 0 >= t + 0 { print $1; exit }' <<<"$packets")"
+}
+
+# Rozdělí výstup větší než DEV_MAX_FILE_MB (MiB) na části "<název> - N. část.mp4"
+# (FAT32 na flash disku má limit 4 GB). Řeže se bez překódování na klíčových
+# snímcích; každá část začíná v čase 0 bez prázdných úseků v edit listu a má
+# index na začátku (faststart), jinak ji TV nemusí přehrát. Části mají
+# podobnou délku; když některá limit přesto překročí, zkusí se o část víc.
+# Po úspěchu se celý výstup smaže. $1=výstup
+split_output() {
+  local output="$1" limit size duration parts i t start end part ok
+  local base="${output%.*}"
+  local -a cuts=() files=() cmd=()
+  (( DEV_MAX_FILE_MB > 0 )) || return 0
+  limit=$(( DEV_MAX_FILE_MB * 1048576 ))
+  size=$(( $(wc -c <"$output") ))
+  (( size > limit )) || return 0
+  duration="$(ffprobe -v error -show_entries format=duration -of default=nw=1:nk=1 "$output" 2>/dev/null || true)"
+  if [[ ! "$duration" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+    err "Neznámá délka videa: $output"
+    return 1
+  fi
+  # 5% rezerva: datový tok se v průběhu filmu mění
+  parts=$(( (size * 100 / 95 + limit - 1) / limit ))
+  log "Výstup má $(( size / 1048576 )) MB (limit $DEV_MAX_FILE_MB MB), dělím na části..."
+  while (( parts <= 99 )); do
+    # zbytky dřívějšího dělení stejného výstupu
+    for (( i = 1; i <= 99; i++ )); do
+      rm -f "$base - $i. část.mp4" "$base - $(printf '%02d' "$i"). část.mp4"
+    done
+    cuts=()
+    for (( i = 1; i < parts; i++ )); do
+      t="$(awk -v d="$duration" -v i="$i" -v n="$parts" 'BEGIN { printf "%.3f", d * i / n }')"
+      next_keyframe "$output" "$t"
+      # dlouhý interval klíčových snímků -> dva řezy na stejném místě
+      if [[ -n "$_KEY" ]] && { [[ ${#cuts[@]} -eq 0 ]] \
+           || awk -v a="$_KEY" -v b="${cuts[-1]}" 'BEGIN { exit !(a > b) }'; }; then
+        cuts+=("$_KEY")
+      fi
+    done
+    files=()
+    ok=1
+    start=""
+    for (( i = 0; i <= ${#cuts[@]}; i++ )); do
+      end="${cuts[i]:-}"
+      # od 10 částí s nulami, aby se v TV řadily správně (01, 02, ... 10)
+      part="$base - $(printf '%0*d' "${#parts}" $((i + 1))). část.mp4"
+      cmd=(ffmpeg -hide_banner -v error -y)
+      [[ -z "$start" ]] || cmd+=(-ss "$start")
+      cmd+=(-i "$output")
+      [[ -z "$end" ]] || cmd+=(-t "$(awk -v a="${start:-0}" -v b="$end" 'BEGIN { printf "%.6f", b - a }')")
+      cmd+=(-map 0 -c copy -map_metadata 0 -movflags +faststart "$part")
+      files+=("$part")
+      if ! "${cmd[@]}"; then
+        rm -f "${files[@]}"
+        return 1
+      fi
+      if (( $(wc -c <"$part") > limit )); then ok=0; fi
+      start="$end"
+    done
+    if [[ "$ok" == "1" ]]; then
+      rm -f "$output"
+      for part in "${files[@]}"; do
+        log "Část: $part ($(( $(wc -c <"$part") / 1048576 )) MB)"
+      done
+      return 0
+    fi
+    rm -f "${files[@]}"
+    parts=$((parts + 1))
+    log "Některá část je větší než limit, zkouším počet částí: $parts"
+  done
+  err "Výstup nejde rozdělit na části do $DEV_MAX_FILE_MB MB: $output"
+  return 1
 }
 
 process_path() {
@@ -1200,6 +1296,7 @@ main() {
       --audio)   [[ $# -ge 2 ]] || { err "Chybí hodnota za --audio"; exit 1; }; AUDIO_OPT="$2"; shift 2 ;;
       --audio-lang) [[ $# -ge 2 ]] || { err "Chybí hodnota za --audio-lang"; exit 1; }; AUDIO_LANG_OPT="$2"; shift 2 ;;
       --blue)    [[ $# -ge 2 ]] || { err "Chybí hodnota za --blue"; exit 1; }; BLUE_OPT="$2"; shift 2 ;;
+      --max-size) [[ $# -ge 2 ]] || { err "Chybí hodnota za --max-size"; exit 1; }; MAX_SIZE_OPT="$2"; shift 2 ;;
       --sub)     [[ $# -ge 2 ]] || { err "Chybí hodnota za --sub"; exit 1; }; SUB_OPT="$2"; shift 2 ;;
       --keep-ass)      DO_EXTRACT="1"; shift ;;
       --no-extract)    DO_EXTRACT="0"; shift ;;  # zastaralé, výchozí chování
@@ -1234,6 +1331,12 @@ main() {
       err "--blue očekává číslo 0-100 (procenta modré složky), např. --blue 60"; exit 1
     fi
     DEV_BLUE_PCT="$((10#$BLUE_OPT))"
+  fi
+  if [[ -n "$MAX_SIZE_OPT" ]]; then
+    if [[ ! "$MAX_SIZE_OPT" =~ ^[0-9]{1,7}$ ]]; then
+      err "--max-size očekává velikost v MB (0 = nedělit), např. --max-size 4000"; exit 1
+    fi
+    DEV_MAX_FILE_MB="$((10#$MAX_SIZE_OPT))"
   fi
 
   require_cmd ffmpeg

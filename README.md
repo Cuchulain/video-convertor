@@ -30,7 +30,7 @@ Televizory se liší v tom, co v MP4 přehrají. Profil zařízení určuje kode
 | `hyundai` (výchozí) | max. 1280 × 720, `standard` 2 000 kb/s | AC-3, max. 384 kb/s; kopie AC-3, MP3 | H.264 bez omezení levelu | původní nastavení |
 | `lg` | max. 1920 × 1080, 180 % (`standard` 3 600, `akcni` 4 500, `serialy` 2 880 kb/s) | AC-3, max. 384 kb/s; kopie AC-3, AAC, MP3 | H.264 do levelu 4.2 | LG 49LH6047 (webOS 3.0, Full HD), limity podle specifikace LG; modrá složka na 50 % (opotřebované podsvícení), video se proto vždy překóduje |
 
-Full HD výstup je zhruba 1,8× větší (film na 107 minut ~3 GB). Na USB disku se systémem FAT32 je limit 4 GB na soubor, který může překročit film delší než asi 2,5 hodiny; NTFS toto omezení nemá.
+Full HD výstup je zhruba 1,8× větší (film na 107 minut ~3 GB). Na USB disku se systémem FAT32 je limit 4 GB na soubor, který může překročit film delší než asi 2,5 hodiny; NTFS toto omezení nemá. Proto profil `lg` větší výstup rozdělí na části (viz [Rozdělení na části](#rozdělení-na-části)).
 
 ```bash
 ./scripts/convert-for-tv.sh --list-devices          # profily a výchozí zařízení
@@ -45,6 +45,17 @@ Televizor s opotřebovanými LED diodami podsvícení svítí příliš do modra
 ```bash
 ./scripts/convert-for-tv.sh --device lg --blue 60 film.mkv    # méně výrazná úprava
 ./scripts/convert-for-tv.sh --device lg --blue 100 film.mkv   # bez úpravy barev
+```
+
+### Rozdělení na části
+
+Výstup větší než limit zařízení (klíč `max_file_mb` v MiB, `lg` 4000, ostatní bez omezení) se po konverzi rozdělí na části `<název> - 1. část.mp4`, `<název> - 2. část.mp4`… (od 10 částí s nulami: `01`, `02`…) a celý výstup se smaže. Dělí se bez překódování na klíčových snímcích na části podobné délky; když je některá větší než limit, zkusí se o část víc. Každá část začíná v čase 0 a má index na začátku souboru, takže ji televize přehraje samostatně. Ručně rozdělené soubory (např. zkopírováním úseku bez `-movflags +faststart`) LG webOS 3.0 přehrát nemusí.
+
+`--max-size MB` (Windows `-MaxSize MB`) limit jednorázově změní, `0` dělení vypne.
+
+```bash
+./scripts/convert-for-tv.sh --device lg --max-size 0 film.mkv      # nedělit (disk s NTFS/exFAT)
+./scripts/convert-for-tv.sh --device hyundai --max-size 4000 film.mkv
 ```
 
 Windows: `-ListDevices`, `-SetDevice lg`, `-Device hyundai`. Přetažení videa na „Převést pro TV“ použije výchozí zařízení.

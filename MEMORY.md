@@ -4,6 +4,12 @@ Projektová paměť: rozhodnutí, jejich důvody a poučení, která nejsou zře
 
 ## Rozhodnutí
 
+### 2026-11-15 – Rozdělení výstupu na části (FAT32)
+- Ručně rozdělený film (Avengers, 2 × 2,5 GB) LG webOS 3.0 nepřehrál: 1. část „nelze přehrát“, 2. část jen zvuk. Bitstream byl v pořádku; lišil se kontejner: index (`moov`) na konci a prázdné úseky v edit listu (`media time -1`), protože jedna stopa začínala o pár ms později. Přesně takové soubory dává segment muxer (`-f segment -reset_timestamps 1`).
+- Proto se dělí zvlášť pro každou část: `-ss <klíčový snímek> -i výstup -t <délka> -c copy -movflags +faststart`. Obě stopy pak začínají v 0 a edit list má jen kladné posuny (B-snímky, AC-3 priming) jako běžný výstup. `use_editlist=0` by edit listy zrušilo, ale u videa s B-snímky by posunulo obraz proti zvuku (~80 ms).
+- Řezy se počítají podle času (stejně dlouhé části, 5% rezerva), ne podle bajtů; při překročení limitu se zkusí o část víc. Jednodušší a pro filmy s VBR dostačující.
+- Dělí se až po opravě audio offsetu, z hotového výstupu; celý výstup se po úspěchu smaže (na FAT32 by se stejně nevešel).
+
 ### 2026-11-10 – Snížení modré pro LG
 - Převzato ze synova `blue_reducer.py` (GUI v Pythonu): `colorchannelmixer=bb=<podíl>`, mění jen modrý kanál v RGB. Docstring skriptu uvádí výchozích 60 %, posuvník v GUI ale začíná na 50 %; pro `lg` použito 50 % (k doladění na TV).
 - Úprava je klíč profilu zařízení (`blue_percent`), protože jde o vadu konkrétní TV, ne o kvalitu; `--blue` ji jednorázově přepíše.

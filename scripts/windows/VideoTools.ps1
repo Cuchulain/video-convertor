@@ -452,12 +452,12 @@ $script:ConfigDirectory = if ($env:APPDATA) {
 } else {
     Join-Path (Join-Path $HOME '.config') 'video-convertor'
 }
-$script:DeviceKeys = @('description', 'audio_codec', 'audio_kbps', 'audio_copy', 'h264_max_level', 'max_width', 'max_height', 'video_kbps_percent', 'blue_percent')
+$script:DeviceKeys = @('description', 'audio_codec', 'audio_kbps', 'audio_copy', 'h264_max_level', 'max_width', 'max_height', 'video_kbps_percent', 'blue_percent', 'max_file_mb')
 # Chybějící klíč = výchozí hodnota (profil hyundai).
 $script:DeviceDefaults = @{
     description = ''; audio_codec = 'ac3'; audio_kbps = '384'; audio_copy = 'ac3 mp3'
     h264_max_level = ''; max_width = '1280'; max_height = '720'; video_kbps_percent = '100'
-    blue_percent = '100'
+    blue_percent = '100'; max_file_mb = ''
 }
 
 # Načte profily zařízení ze souboru do $Devices (název -> @{ klíč = hodnota }).
@@ -565,7 +565,7 @@ function Show-Devices($Devices) {
 }
 
 # Ověří zařízení a vrátí @{ Name; AudioCodec; AudioKbps; AudioCopy; H264MaxLevel;
-# MaxWidth; MaxHeight; KbpsPercent; BluePercent }.
+# MaxWidth; MaxHeight; KbpsPercent; BluePercent; MaxFileMb }.
 function Get-Device($Devices, [string] $Name) {
     if (@($Devices.Keys) -cnotcontains $Name) {
         throw "Neznámé zařízení: $Name (povolené: $(@($Devices.Keys) -join ' '))"
@@ -577,7 +577,8 @@ function Get-Device($Devices, [string] $Name) {
     }
     if ($values['audio_codec'] -cnotin @('ac3', 'aac')) { throw "Zařízení ${Name}: audio_codec musí být ac3 nebo aac" }
     $level = if ($values['h264_max_level']) { $values['h264_max_level'] } else { '0' }
-    foreach ($number in @($values['audio_kbps'], $values['max_width'], $values['max_height'], $level, $values['video_kbps_percent'], $values['blue_percent'])) {
+    $maxFile = if ($values['max_file_mb']) { $values['max_file_mb'] } else { '0' }
+    foreach ($number in @($values['audio_kbps'], $values['max_width'], $values['max_height'], $level, $values['video_kbps_percent'], $values['blue_percent'], $maxFile)) {
         if ($number -notmatch '^\d+$') { throw "Zařízení ${Name}: neplatná číselná hodnota '$number'" }
     }
     if ([int]$values['video_kbps_percent'] -lt 1) { throw "Zařízení ${Name}: video_kbps_percent musí být aspoň 1" }
@@ -592,5 +593,6 @@ function Get-Device($Devices, [string] $Name) {
         MaxHeight = [int]$values['max_height']
         KbpsPercent = [int]$values['video_kbps_percent']
         BluePercent = [int]$values['blue_percent']
+        MaxFileMb = [int]$maxFile
     }
 }
