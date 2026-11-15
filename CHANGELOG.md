@@ -2,7 +2,7 @@
 
 Formát vychází z [Keep a Changelog](https://keepachangelog.com/cs/1.1.0/), verze podle souboru `VERSION`.
 
-## [Nevydáno]
+## [0.5.0] – 2026-11-15
 
 ### Přidáno
 - Rozdělení výstupu na části pro flash disky s FAT32 (limit 4 GB): klíč `max_file_mb` v profilech zařízení (`lg` 4000 MB) a přepínač `--max-size MB` / `-MaxSize MB` (`0` = nedělit). Dělí se bez překódování na klíčových snímcích na části `<název> - N. část.mp4`, každá začíná v čase 0 a má index na začátku souboru (ručně rozdělený film LG nepřehrál).
